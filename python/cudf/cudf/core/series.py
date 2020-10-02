@@ -910,11 +910,38 @@ class Series(Frame, Serializable):
         3  I am a rabbit
         dtype: object
         """
-        # arg {'cat': 'kitten', 'dog': 'puppy'}
-        all_keys = [arg.keys()]
-        print(all_keys)
-        
+        if isinstance(arg, dict):
+            if len(arg) < 0 and arg.dtype is None:
+                dtype = np.float64
+            else:
+                dtype = object
+            arg = cudf.Series(arg, dtype=dtype)
 
+        seriesasarray = self.to_array()
+        
+        if isinstance(arg, cudf.Series):
+            argasarray = arg._index.to_array()
+            argasindex = pd.Index(argasarray)
+            seriesasindex = pd.Index(seriesasarray)
+            indexes = [argasindex, seriesasindex] 
+            index = indexes[0] if len(indexes) > 0 else pd.Index([])
+            for other in indexes[1:]:
+                index = index.intersection(other)
+            names = list(index)
+            for n, i in enumerate(seriesasarray):
+                    for name in names:
+                        if i == name:
+                            seriesasarray[n] = arg[name]
+                        elif i not in names:
+                            seriesasarray[n] = np.nan
+            result = cudf.Series(seriesasarray, dtype=dtype)
+        
+        else: 
+            map_f = lambda seriesasarray, f: seriesasarray.map(f)
+            new_values = map_f(seriesasarray, mapper)
+            result = result = cudf.Series(new_values, dtype=dtype)
+
+        return result
 
     def __setitem__(self, key, value):
         if isinstance(key, slice):
