@@ -835,6 +835,87 @@ class Series(Frame, Serializable):
             "`.to_pandas().to_dict()` to construct a Python dictionary."
         )
 
+    def map(self, arg, na_action=None) -> "Series":
+        """
+        Map values of Series according to input correspondence.
+
+        Used for substituting each value in a Series with another value,
+        that may be derived from a function, a ``dict`` or
+        a :class:`Series`.
+
+        Parameters
+        ----------
+        arg : function, collections.abc.Mapping subclass or Series
+            Mapping correspondence.
+        na_action : {None, 'ignore'}, default None
+            If 'ignore', propagate NaN values, without passing them to the
+            mapping correspondence.
+
+        Returns
+        -------
+        Series
+            Same index as caller.
+
+        See Also
+        --------
+        Series.apply : For applying more complex functions on a Series.
+        DataFrame.apply : Apply a function row-/column-wise.
+        DataFrame.applymap : Apply a function elementwise on a whole DataFrame.
+
+        Notes
+        -----
+        When ``arg`` is a dictionary, values in Series that are not in the
+        dictionary (as keys) are converted to ``NaN``. However, if the
+        dictionary is a ``dict`` subclass that defines ``__missing__`` (i.e.
+        provides a method for default values), then this default is used
+        rather than ``NaN``.
+
+        Examples
+        --------
+        >>> s = pd.Series(['cat', 'dog', np.nan, 'rabbit'])
+        >>> s
+        0      cat
+        1      dog
+        2      NaN
+        3   rabbit
+        dtype: object
+
+        ``map`` accepts a ``dict`` or a ``Series``. Values that are not found
+        in the ``dict`` are converted to ``NaN``, unless the dict has a default
+        value (e.g. ``defaultdict``):
+
+        >>> s.map({'cat': 'kitten', 'dog': 'puppy'})
+        0   kitten
+        1    puppy
+        2      NaN
+        3      NaN
+        dtype: object
+
+        It also accepts a function:
+
+        >>> s.map('I am a {}'.format)
+        0       I am a cat
+        1       I am a dog
+        2       I am a nan
+        3    I am a rabbit
+        dtype: object
+
+        To avoid applying the function to missing values (and keep them as
+        ``NaN``) ``na_action='ignore'`` can be used:
+
+        >>> s.map('I am a {}'.format, na_action='ignore')
+        0     I am a cat
+        1     I am a dog
+        2            NaN
+        3  I am a rabbit
+        dtype: object
+        """
+        # arg {'cat': 'kitten', 'dog': 'puppy'}
+        all_keys = [arg.keys()]
+        print(all_keys)
+        
+
+
     def __setitem__(self, key, value):
         if isinstance(key, slice):
             self.iloc[key] = value
@@ -5087,3 +5168,8 @@ def isclose(a, b, rtol=1e-05, atol=1e-08, equal_nan=False):
         result_col[equal_nulls] = True
 
     return Series(result_col, index=index)
+
+
+
+
+        
