@@ -929,18 +929,17 @@ class Series(Frame, Serializable):
                 index = index.intersection(other)
             names = list(index)
             for n, i in enumerate(seriesasarray):
-                    for name in names:
-                        if i == name:
-                            seriesasarray[n] = arg[name]
-                        elif i not in names:
-                            seriesasarray[n] = np.nan
+                for name in names:
+                    if i == name:
+                        seriesasarray[n] = arg[name]
+                    elif i not in names:
+                        seriesasarray[n] = np.nan
             result = cudf.Series(seriesasarray, dtype=dtype)
         
-        else: 
-            map_f = lambda seriesasarray, f: seriesasarray.map(f)
-            new_values = map_f(seriesasarray, mapper)
-            result = result = cudf.Series(new_values, dtype=dtype)
-
+        else:
+            vfunc = np.vectorize(arg)
+            function_array = vfunc(seriesasarray)
+            result = cudf.Series(function_array) 
         return result
 
     def __setitem__(self, key, value):
