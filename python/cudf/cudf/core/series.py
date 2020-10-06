@@ -895,6 +895,7 @@ class Series(Frame, Serializable):
                 dtype = np.float64
             else:
                 dtype = object
+            breakpoint()
             arg = cudf.Series(arg, dtype=dtype)
 
         seriesasarray = self.to_array()
