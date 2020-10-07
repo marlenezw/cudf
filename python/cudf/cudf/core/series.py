@@ -891,36 +891,10 @@ class Series(Frame, Serializable):
         dtype: object
         """
         if isinstance(arg, dict):
-            if len(arg) < 0 and arg.dtype is None:
-                dtype = np.float64
-            else:
-                dtype = object
-            breakpoint()
-            arg = cudf.Series(arg, dtype=dtype)
-
-        seriesasarray = self.to_array()
-
+            result = self.replace(arg)
         if isinstance(arg, cudf.Series):
-            argasarray = arg._index.to_array()
-            argasindex = pd.Index(argasarray)
-            seriesasindex = pd.Index(seriesasarray)
-            indexes = [argasindex, seriesasindex]
-            index = indexes[0] if len(indexes) > 0 else pd.Index([])
-            for other in indexes[1:]:
-                index = index.intersection(other)
-            names = list(index)
-            for n, i in enumerate(seriesasarray):
-                for name in names:
-                    if i == name:
-                        seriesasarray[n] = arg[name]
-                    elif i not in names:
-                        seriesasarray[n] = np.nan
-            result = cudf.Series(seriesasarray, dtype=dtype)
+            result = self.replace(self, arg)
 
-        else:
-            vfunc = np.vectorize(arg)
-            function_array = vfunc(seriesasarray)
-            result = cudf.Series(function_array)
         return result
 
     def __getitem__(self, arg):
