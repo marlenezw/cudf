@@ -893,8 +893,7 @@ class Series(Frame, Serializable):
         if isinstance(arg, dict):
             result = self.replace(arg)
         if isinstance(arg, cudf.Series):
-            result = self.replace(self, arg)
-
+            result = self.replace(arg.index, arg)
         return result
 
     def __getitem__(self, arg):
