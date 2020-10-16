@@ -15,7 +15,7 @@
 #=============================================================================
 cmake_minimum_required(VERSION 3.14 FATAL_ERROR)
 
-project(CUDA_DATAFRAME VERSION 0.16.0 LANGUAGES C CXX CUDA)
+project(CUDA_DATAFRAME VERSION 0.17.0 LANGUAGES C CXX CUDA)
 
 if(NOT CMAKE_CUDA_COMPILER)
   message(SEND_ERROR "CMake cannot locate a CUDA compiler")
@@ -434,6 +434,7 @@ add_library(cudf
             src/reductions/nth_element.cu
             src/reductions/min.cu
             src/reductions/max.cu
+            src/reductions/minmax.cu
             src/reductions/any.cu
             src/reductions/all.cu
             src/reductions/sum.cu
@@ -473,6 +474,7 @@ add_library(cudf
             src/io/orc/reader_impl.cu
             src/io/orc/writer_impl.cu
             src/io/parquet/page_data.cu
+            src/io/parquet/compact_protocol_writer.cpp
             src/io/parquet/page_hdr.cu
             src/io/parquet/page_enc.cu
             src/io/parquet/page_dict.cu
@@ -618,6 +620,8 @@ add_library(cudf
             src/aggregation/aggregation.cpp
             src/aggregation/aggregation.cu
             src/aggregation/result_cache.cpp
+            src/ast/transform.cu
+            src/ast/linearizer.cpp
             src/utilities/default_stream.cpp
 )
 
@@ -626,6 +630,9 @@ set_target_properties(cudf PROPERTIES BUILD_RPATH "\$ORIGIN")
 
 ###################################################################################################
 # - jitify ----------------------------------------------------------------------------------------
+
+# Disable Jitify log printing. See https://github.com/NVIDIA/jitify/issues/79
+target_compile_definitions(cudf PRIVATE JITIFY_PRINT_LOG=0)
 
 # Creates executable stringify and uses it to convert types.h to c-str for use in JIT code
 add_executable(stringify "${JITIFY_INCLUDE_DIR}/stringify.cpp")
