@@ -211,3 +211,183 @@ class StructDtype(ExtensionDtype):
 
     def __repr__(self):
         return f"StructDtype({self.fields})"
+
+
+class IntervalDtype(ExtensionDtype):
+    """
+    An ExtensionDtype for Interval data.
+    **This is not an actual numpy dtype**, but a duck type.
+    Parameters
+    ----------
+    subtype : str, np.dtype
+        The dtype of the Interval bounds.
+    Attributes
+    ----------
+    subtype
+    Methods
+    -------
+    None
+    Examples
+    --------
+    >>> pd.IntervalDtype(subtype='int64')
+    interval[int64]
+    """
+    def __new__(cls, subtype=None):
+        from pandas.core.dtypes.common import (
+            is_categorical_dtype,
+            is_string_dtype,
+            pandas_dtype,
+        )
+
+        if isinstance(subtype, IntervalDtype):
+            return subtype
+        elif subtype is None:
+            # we are called as an empty constructor
+            # generally for pickle compat
+            u = object.__new__(cls)
+            u._subtype = None
+            return u
+        elif isinstance(subtype, str) and subtype.lower() == "interval":
+            subtype = None
+        else:
+            if isinstance(subtype, str):
+                m = cls._match.search(subtype)
+                if m is not None:
+                    subtype = m.group("subtype")
+
+            try:
+                subtype = pandas_dtype(subtype)
+            except TypeError as err:
+                raise TypeError("could not construct IntervalDtype") from err
+
+        if is_categorical_dtype(subtype) or is_string_dtype(subtype):
+            # GH 19016
+            msg = (
+                "category, object, and string subtypes are not supported "
+                "for IntervalDtype"
+            )
+            raise TypeError(msg)
+
+        try:
+            return cls._cache[str(subtype)]
+        except KeyError:
+            u = object.__new__(cls)
+            u._subtype = subtype
+            cls._cache[str(subtype)] = u
+            return u
+
+    @property
+    def subtype(self):
+        """
+        The dtype of the Interval bounds.
+        """
+        return self._subtype
+
+    # @classmethod
+    # def construct_array_type(cls) -> Type["IntervalArray"]:
+    #     """
+    #     Return the array type associated with this dtype.
+    #     Returns
+    #     -------
+    #     type
+    #     """
+    #     from pandas.core.arrays import IntervalArray
+
+    #     return IntervalArray
+
+    # @classmethod
+    # def construct_from_string(cls, string):
+    #     """
+    #     attempt to construct this type from a string, raise a TypeError
+    #     if its not possible
+    #     """
+    #     if not isinstance(string, str):
+    #         raise TypeError(
+    #             f"'construct_from_string' expects a string, got {type(string)}"
+    #         )
+
+    #     if string.lower() == "interval" or cls._match.search(string) is not None:
+    #         return cls(string)
+
+    #     msg = (
+    #         f"Cannot construct a 'IntervalDtype' from '{string}'.\n\n"
+    #         "Incorrectly formatted string passed to constructor. "
+    #         "Valid formats include Interval or Interval[dtype] "
+    #         "where dtype is numeric, datetime, or timedelta"
+    #     )
+    #     raise TypeError(msg)
+
+    # @property
+    # def type(self):
+    #     return Interval
+
+    # def __str__(self) -> str_type:
+    #     if self.subtype is None:
+    #         return "interval"
+    #     return f"interval[{self.subtype}]"
+
+    # def __hash__(self) -> int:
+    #     # make myself hashable
+    #     return hash(str(self))
+
+    # def __eq__(self, other: Any) -> bool:
+    #     if isinstance(other, str):
+    #         return other.lower() in (self.name.lower(), str(self).lower())
+    #     elif not isinstance(other, IntervalDtype):
+    #         return False
+    #     elif self.subtype is None or other.subtype is None:
+    #         # None should match any subtype
+    #         return True
+    #     else:
+    #         from pandas.core.dtypes.common import is_dtype_equal
+
+    #         return is_dtype_equal(self.subtype, other.subtype)
+
+    # def __setstate__(self, state):
+    #     # for pickle compat. __get_state__ is defined in the
+    #     # PandasExtensionDtype superclass and uses the public properties to
+    #     # pickle -> need to set the settable private ones here (see GH26067)
+    #     self._subtype = state["subtype"]
+
+    # @classmethod
+    # def is_dtype(cls, dtype: object) -> bool:
+    #     """
+    #     Return a boolean if we if the passed type is an actual dtype that we
+    #     can match (via string or type)
+    #     """
+    #     if isinstance(dtype, str):
+    #         if dtype.lower().startswith("interval"):
+    #             try:
+    #                 if cls.construct_from_string(dtype) is not None:
+    #                     return True
+    #                 else:
+    #                     return False
+    #             except (ValueError, TypeError):
+    #                 return False
+    #         else:
+    #             return False
+    #     return super().is_dtype(dtype)
+
+    # def __from_arrow__(
+    #     self, array: Union["pyarrow.Array", "pyarrow.ChunkedArray"]
+    # ) -> "IntervalArray":
+    #     """
+    #     Construct IntervalArray from pyarrow Array/ChunkedArray.
+    #     """
+    #     import pyarrow  # noqa: F811
+
+    #     from pandas.core.arrays import IntervalArray
+
+    #     if isinstance(array, pyarrow.Array):
+    #         chunks = [array]
+    #     else:
+    #         chunks = array.chunks
+
+    #     results = []
+    #     for arr in chunks:
+    #         left = np.asarray(arr.storage.field("left"), dtype=self.subtype)
+    #         right = np.asarray(arr.storage.field("right"), dtype=self.subtype)
+    #         iarr = IntervalArray.from_arrays(left, right, closed=array.type.closed)
+    #         results.append(iarr)
+
+    #     return IntervalArray._concat_same_type(results)
