@@ -45,6 +45,7 @@ namespace gpu {
 struct page_state_s {
   const uint8_t *data_start;
   const uint8_t *data_end;
+  const uint8_t *lvl_end;
   const uint8_t *dict_base;    // ptr to dictionary page data
   int32_t dict_size;           // size of dictionary data
   int32_t first_row;           // First row in page to output
@@ -181,16 +182,16 @@ __device__ uint32_t InitLevelSection(page_state_s *s,
                                      level_type lvl)
 {
   int32_t len;
-  int level_bits = s->col.level_bits[lvl];
-  int encoding   = lvl == level_type::DEFINITION ? s->page.definition_level_encoding
-                                               : s->page.repetition_level_encoding;
+  int level_bits    = s->col.level_bits[lvl];
+  Encoding encoding = lvl == level_type::DEFINITION ? s->page.definition_level_encoding
+                                                    : s->page.repetition_level_encoding;
 
   if (level_bits == 0) {
     len                       = 0;
     s->initial_rle_run[lvl]   = s->page.num_input_values * 2;  // repeated value
     s->initial_rle_value[lvl] = 0;
     s->lvl_start[lvl]         = cur;
-  } else if (encoding == RLE) {
+  } else if (encoding == Encoding::RLE) {
     if (cur + 4 < end) {
       uint32_t run;
       len = 4 + (cur[0]) + (cur[1] << 8) + (cur[2] << 16) + (cur[3] << 24);
@@ -212,7 +213,7 @@ __device__ uint32_t InitLevelSection(page_state_s *s,
       len      = 0;
       s->error = 2;
     }
-  } else if (encoding == BIT_PACKED) {
+  } else if (encoding == Encoding::BIT_PACKED) {
     len                       = (s->page.num_input_values * level_bits + 7) >> 3;
     s->initial_rle_run[lvl]   = ((s->page.num_input_values + 7) >> 3) * 2 + 1;  // literal run
     s->initial_rle_value[lvl] = 0;
@@ -236,7 +237,7 @@ __device__ void gpuDecodeStream(
   uint32_t *output, page_state_s *s, int32_t target_count, int t, level_type lvl)
 {
   const uint8_t *cur_def    = s->lvl_start[lvl];
-  const uint8_t *end        = s->data_start;
+  const uint8_t *end        = s->lvl_end;
   uint32_t level_run        = s->initial_rle_run[lvl];
   int32_t level_val         = s->initial_rle_value[lvl];
   int level_bits            = s->col.level_bits[lvl];
@@ -912,21 +913,13 @@ static __device__ bool setupLocalPageInfo(page_state_s *const s,
   int chunk_idx;
 
   // Fetch page info
-  // NOTE: Assumes that sizeof(PageInfo) <= 256 (and is padded to 4 bytes)
-  if (t < sizeof(PageInfo) / sizeof(uint32_t)) {
-    reinterpret_cast<uint32_t *>(&s->page)[t] = reinterpret_cast<const uint32_t *>(p)[t];
-  }
+  if (t == 0) s->page = *p;
   __syncthreads();
+
   if (s->page.flags & PAGEINFO_FLAGS_DICTIONARY) { return false; }
   // Fetch column chunk info
   chunk_idx = s->page.chunk_idx;
-  if ((uint32_t)chunk_idx < (uint32_t)num_chunks) {
-    // NOTE: Assumes that sizeof(ColumnChunkDesc) <= 256 (and is padded to 4 bytes)
-    if (t < sizeof(ColumnChunkDesc) / sizeof(uint32_t)) {
-      reinterpret_cast<uint32_t *>(&s->col)[t] =
-        reinterpret_cast<const uint32_t *>(&chunks[chunk_idx])[t];
-    }
-  }
+  if (t == 0) { s->col = chunks[chunk_idx]; }
 
   // zero nested value and valid counts
   int d = 0;
@@ -1057,8 +1050,8 @@ static __device__ bool setupLocalPageInfo(page_state_s *const s,
       s->dict_base = 0;
       s->dict_size = 0;
       switch (s->page.encoding) {
-        case PLAIN_DICTIONARY:
-        case RLE_DICTIONARY:
+        case Encoding::PLAIN_DICTIONARY:
+        case Encoding::RLE_DICTIONARY:
           // RLE-packed dictionary indices, first byte indicates index length in bits
           if (((s->col.data_type & 7) == BYTE_ARRAY) && (s->col.str_dict_index)) {
             // String dictionary: use index
@@ -1074,17 +1067,18 @@ static __device__ bool setupLocalPageInfo(page_state_s *const s,
           s->dict_bits = (cur < end) ? *cur++ : 0;
           if (s->dict_bits > 32 || !s->dict_base) { s->error = (10 << 8) | s->dict_bits; }
           break;
-        case PLAIN:
+        case Encoding::PLAIN:
           s->dict_size = static_cast<int32_t>(end - cur);
           s->dict_val  = 0;
           if ((s->col.data_type & 7) == BOOLEAN) { s->dict_run = s->dict_size * 2 + 1; }
           break;
-        case RLE: s->dict_run = 0; break;
+        case Encoding::RLE: s->dict_run = 0; break;
         default:
           s->error = 1;  // Unsupported encoding
           break;
       }
       if (cur > end) { s->error = 1; }
+      s->lvl_end    = cur;
       s->data_start = cur;
       s->data_end   = end;
     } else {
@@ -1127,7 +1121,7 @@ static __device__ bool setupLocalPageInfo(page_state_s *const s,
         s->page.skipped_leaf_values = s->first_row;
       }
 
-      s->input_value_count = s->page.skipped_values;
+      s->input_value_count = s->page.skipped_values > -1 ? s->page.skipped_values : 0;
     } else {
       s->input_value_count        = 0;
       s->input_leaf_count         = 0;
@@ -1765,14 +1759,14 @@ struct start_offset_output_iterator {
 /**
  * @copydoc cudf::io::parquet::gpu::PreprocessColumnData
  */
-cudaError_t PreprocessColumnData(hostdevice_vector<PageInfo> &pages,
-                                 hostdevice_vector<ColumnChunkDesc> const &chunks,
-                                 std::vector<input_column_info> &input_columns,
-                                 std::vector<cudf::io::detail::column_buffer> &output_columns,
-                                 size_t num_rows,
-                                 size_t min_row,
-                                 cudaStream_t stream,
-                                 rmm::mr::device_memory_resource *mr)
+void PreprocessColumnData(hostdevice_vector<PageInfo> &pages,
+                          hostdevice_vector<ColumnChunkDesc> const &chunks,
+                          std::vector<input_column_info> &input_columns,
+                          std::vector<cudf::io::detail::column_buffer> &output_columns,
+                          size_t num_rows,
+                          size_t min_row,
+                          cudaStream_t stream,
+                          rmm::mr::device_memory_resource *mr)
 {
   dim3 dim_block(NTHREADS, 1);
   dim3 dim_grid(pages.size(), 1);  // 1 threadblock per page
@@ -1887,26 +1881,22 @@ cudaError_t PreprocessColumnData(hostdevice_vector<PageInfo> &pages,
                                                                  static_cast<int>(l_idx)});
     }
   }
-
-  return cudaSuccess;
 }
 
 /**
  * @copydoc cudf::io::parquet::gpu::DecodePageData
  */
-cudaError_t __host__ DecodePageData(hostdevice_vector<PageInfo> &pages,
-                                    hostdevice_vector<ColumnChunkDesc> const &chunks,
-                                    size_t num_rows,
-                                    size_t min_row,
-                                    cudaStream_t stream)
+void __host__ DecodePageData(hostdevice_vector<PageInfo> &pages,
+                             hostdevice_vector<ColumnChunkDesc> const &chunks,
+                             size_t num_rows,
+                             size_t min_row,
+                             cudaStream_t stream)
 {
   dim3 dim_block(NTHREADS, 1);
   dim3 dim_grid(pages.size(), 1);  // 1 threadblock per page
 
   gpuDecodePageData<<<dim_grid, dim_block, 0, stream>>>(
     pages.device_ptr(), chunks.device_ptr(), min_row, num_rows, chunks.size());
-
-  return cudaSuccess;
 }
 
 }  // namespace gpu

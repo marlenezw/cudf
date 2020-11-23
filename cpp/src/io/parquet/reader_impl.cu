@@ -225,7 +225,7 @@ struct metadata : public FileMetaData {
     const auto ender_buffer  = source->host_read(len - ender_len, ender_len);
     const auto ender         = reinterpret_cast<const file_ender_s *>(ender_buffer->data());
     CUDF_EXPECTS(len > header_len + ender_len, "Incorrect data source");
-    CUDF_EXPECTS(header->magic == PARQUET_MAGIC && ender->magic == PARQUET_MAGIC,
+    CUDF_EXPECTS(header->magic == parquet_magic && ender->magic == parquet_magic,
                  "Corrupted header or footer");
     CUDF_EXPECTS(ender->footer_len != 0 && ender->footer_len <= (len - header_len - ender_len),
                  "Incorrect footer length");
@@ -802,7 +802,7 @@ size_t reader::impl::count_page_headers(hostdevice_vector<gpu::ColumnChunkDesc> 
   size_t total_pages = 0;
 
   chunks.host_to_device(stream);
-  CUDA_TRY(gpu::DecodePageHeaders(chunks.device_ptr(), chunks.size(), stream));
+  gpu::DecodePageHeaders(chunks.device_ptr(), chunks.size(), stream);
   chunks.device_to_host(stream, true);
 
   for (size_t c = 0; c < chunks.size(); c++) {
@@ -828,7 +828,7 @@ void reader::impl::decode_page_headers(hostdevice_vector<gpu::ColumnChunkDesc> &
   }
 
   chunks.host_to_device(stream);
-  CUDA_TRY(gpu::DecodePageHeaders(chunks.device_ptr(), chunks.size(), stream));
+  gpu::DecodePageHeaders(chunks.device_ptr(), chunks.size(), stream);
   pages.device_to_host(stream, true);
 }
 
@@ -1094,8 +1094,8 @@ void reader::impl::preprocess_columns(hostdevice_vector<gpu::ColumnChunkDesc> &c
     create_columns(_output_columns);
   } else {
     // preprocess per-nesting level sizes by page
-    CUDA_TRY(gpu::PreprocessColumnData(
-      pages, chunks, _input_columns, _output_columns, total_rows, min_row, stream, _mr));
+    gpu::PreprocessColumnData(
+      pages, chunks, _input_columns, _output_columns, total_rows, min_row, stream, _mr);
     CUDA_TRY(cudaStreamSynchronize(stream));
   }
 }
@@ -1212,10 +1212,10 @@ void reader::impl::decode_page_data(hostdevice_vector<gpu::ColumnChunkDesc> &chu
   chunks.host_to_device(stream);
 
   if (total_str_dict_indexes > 0) {
-    CUDA_TRY(gpu::BuildStringDictionaryIndex(chunks.device_ptr(), chunks.size(), stream));
+    gpu::BuildStringDictionaryIndex(chunks.device_ptr(), chunks.size(), stream);
   }
 
-  CUDA_TRY(gpu::DecodePageData(pages, chunks, total_rows, min_row, stream));
+  gpu::DecodePageData(pages, chunks, total_rows, min_row, stream);
   pages.device_to_host(stream);
   page_nesting.device_to_host(stream);
   cudaStreamSynchronize(stream);
