@@ -37,12 +37,13 @@ from cudf._lib.nvtext.subword_tokenize import (
     subword_tokenize as cpp_subword_tokenize,
 )
 from cudf._lib.nvtext.tokenize import (
+    _count_tokens_column as cpp_count_tokens_column,
+    _count_tokens_scalar as cpp_count_tokens_scalar,
+    _tokenize_column as cpp_tokenize_column,
+    _tokenize_scalar as cpp_tokenize_scalar,
     character_tokenize as cpp_character_tokenize,
-    count_tokens as cpp_count_tokens,
     detokenize as cpp_detokenize,
-    tokenize as cpp_tokenize,
 )
-from cudf._lib.scalar import DeviceScalar, as_device_scalar
 from cudf._lib.strings.attributes import (
     code_points as cpp_code_points,
     count_bytes as cpp_count_bytes,
@@ -120,7 +121,9 @@ from cudf._lib.strings.split.partition import (
 )
 from cudf._lib.strings.split.split import (
     rsplit as cpp_rsplit,
+    rsplit_record as cpp_rsplit_record,
     split as cpp_split,
+    split_record as cpp_split_record,
 )
 from cudf._lib.strings.strip import (
     lstrip as cpp_lstrip,
@@ -161,16 +164,6 @@ _str_to_numeric_typecast_functions = {
     np.dtype("float32"): str_cast.stof,
     np.dtype("float64"): str_cast.stod,
     np.dtype("bool"): str_cast.to_booleans,
-    # TODO: support Date32 UNIX days
-    # np.dtype("datetime64[D]"): str_cast.timestamp2int,
-    np.dtype("datetime64[s]"): str_cast.timestamp2int,
-    np.dtype("datetime64[ms]"): str_cast.timestamp2int,
-    np.dtype("datetime64[us]"): str_cast.timestamp2int,
-    np.dtype("datetime64[ns]"): str_cast.timestamp2int,
-    np.dtype("timedelta64[s]"): str_cast.timedelta2int,
-    np.dtype("timedelta64[ms]"): str_cast.timedelta2int,
-    np.dtype("timedelta64[us]"): str_cast.timedelta2int,
-    np.dtype("timedelta64[ns]"): str_cast.timedelta2int,
 }
 
 _numeric_to_str_typecast_functions = {
@@ -185,12 +178,18 @@ _numeric_to_str_typecast_functions = {
     np.dtype("float32"): str_cast.ftos,
     np.dtype("float64"): str_cast.dtos,
     np.dtype("bool"): str_cast.from_booleans,
+}
+
+_datetime_to_str_typecast_functions = {
     # TODO: support Date32 UNIX days
     # np.dtype("datetime64[D]"): str_cast.int2timestamp,
     np.dtype("datetime64[s]"): str_cast.int2timestamp,
     np.dtype("datetime64[ms]"): str_cast.int2timestamp,
     np.dtype("datetime64[us]"): str_cast.int2timestamp,
     np.dtype("datetime64[ns]"): str_cast.int2timestamp,
+}
+
+_timedelta_to_str_typecast_functions = {
     np.dtype("timedelta64[s]"): str_cast.int2timedelta,
     np.dtype("timedelta64[ms]"): str_cast.int2timedelta,
     np.dtype("timedelta64[us]"): str_cast.int2timedelta,
@@ -280,7 +279,7 @@ class StringMethods(ColumnMethodsMixin):
         else:
             return self.get(key)
 
-    def len(self, **kwargs):
+    def len(self):
         """
         Computes the length of each element in the Series/Index.
 
@@ -300,11 +299,9 @@ class StringMethods(ColumnMethodsMixin):
         dtype: int32
         """
 
-        return self._return_or_inplace(
-            cpp_count_characters(self._column), **kwargs,
-        )
+        return self._return_or_inplace(cpp_count_characters(self._column))
 
-    def byte_count(self, **kwargs):
+    def byte_count(self):
         """
         Computes the number of bytes of each string in the Series/Index.
 
@@ -329,11 +326,9 @@ class StringMethods(ColumnMethodsMixin):
         2    11
         dtype: int32
         """
-        return self._return_or_inplace(
-            cpp_count_bytes(self._column), **kwargs,
-        )
+        return self._return_or_inplace(cpp_count_bytes(self._column),)
 
-    def cat(self, others=None, sep=None, na_rep=None, **kwargs):
+    def cat(self, others=None, sep=None, na_rep=None):
         """
         Concatenate strings in the Series/Index with given separator.
 
@@ -423,9 +418,7 @@ class StringMethods(ColumnMethodsMixin):
 
         if others is None:
             data = cpp_join(
-                self._column,
-                as_device_scalar(sep),
-                as_device_scalar(na_rep, "str"),
+                self._column, cudf.Scalar(sep), cudf.Scalar(na_rep, "str"),
             )
         else:
             other_cols = _get_cols_list(self._parent, others)
@@ -434,13 +427,13 @@ class StringMethods(ColumnMethodsMixin):
                 cudf.DataFrame(
                     {index: value for index, value in enumerate(all_cols)}
                 ),
-                as_device_scalar(sep),
-                as_device_scalar(na_rep, "str"),
+                cudf.Scalar(sep),
+                cudf.Scalar(na_rep, "str"),
             )
 
         if len(data) == 1 and data.null_count == 1:
             data = [""]
-        out = self._return_or_inplace(data, **kwargs)
+        out = self._return_or_inplace(data)
         if len(out) == 1 and others is None:
             if isinstance(out, cudf.Series):
                 out = out.iloc[0]
@@ -460,7 +453,7 @@ class StringMethods(ColumnMethodsMixin):
             "Columns of arrays / lists are not yet " "supported"
         )
 
-    def extract(self, pat, flags=0, expand=True, **kwargs):
+    def extract(self, pat, flags=0, expand=True):
         """
         Extract capture groups in the regex `pat` as columns in a DataFrame.
 
@@ -520,14 +513,11 @@ class StringMethods(ColumnMethodsMixin):
 
         out = cpp_extract(self._column, pat)
         if out._num_columns == 1 and expand is False:
-            return self._return_or_inplace(out._columns[0], **kwargs)
+            return self._return_or_inplace(out._columns[0], expand=expand)
         else:
-            kwargs.setdefault("expand", expand)
-            return self._return_or_inplace(out, **kwargs)
+            return self._return_or_inplace(out, expand=expand)
 
-    def contains(
-        self, pat, case=True, flags=0, na=np.nan, regex=True, **kwargs
-    ):
+    def contains(self, pat, case=True, flags=0, na=np.nan, regex=True):
         """
         Test if pattern or regex is contained within a string of a Series or
         Index.
@@ -646,17 +636,15 @@ class StringMethods(ColumnMethodsMixin):
                 result_col = cpp_contains_re(self._column, pat)
             else:
                 result_col = cpp_contains(
-                    self._column, as_device_scalar(pat, "str")
+                    self._column, cudf.Scalar(pat, "str")
                 )
         else:
             result_col = cpp_contains_multiple(
                 self._column, column.as_column(pat, dtype="str")
             )
-        return self._return_or_inplace(result_col, **kwargs)
+        return self._return_or_inplace(result_col)
 
-    def replace(
-        self, pat, repl, n=-1, case=None, flags=0, regex=True, **kwargs
-    ):
+    def replace(self, pat, repl, n=-1, case=None, flags=0, regex=True):
         """
         Replace occurrences of pattern/regex in the Series/Index with some
         other string. Equivalent to `str.replace()
@@ -741,7 +729,6 @@ class StringMethods(ColumnMethodsMixin):
                     column.as_column(pat, dtype="str"),
                     column.as_column(repl, dtype="str"),
                 ),
-                **kwargs,
             )
         # Pandas treats 0 as all
         if n == 0:
@@ -749,18 +736,17 @@ class StringMethods(ColumnMethodsMixin):
 
         # Pandas forces non-regex replace when pat is a single-character
         return self._return_or_inplace(
-            cpp_replace_re(self._column, pat, as_device_scalar(repl, "str"), n)
+            cpp_replace_re(self._column, pat, cudf.Scalar(repl, "str"), n)
             if regex is True and len(pat) > 1
             else cpp_replace(
                 self._column,
-                as_device_scalar(pat, "str"),
-                as_device_scalar(repl, "str"),
+                cudf.Scalar(pat, "str"),
+                cudf.Scalar(repl, "str"),
                 n,
             ),
-            **kwargs,
         )
 
-    def replace_with_backrefs(self, pat, repl, **kwargs):
+    def replace_with_backrefs(self, pat, repl):
         """
         Use the ``repl`` back-ref template to create a new string
         with the extracted elements found using the ``pat`` expression.
@@ -781,16 +767,16 @@ class StringMethods(ColumnMethodsMixin):
         --------
         >>> import cudf
         >>> s = cudf.Series(["A543","Z756"])
-        >>> s.str.replace_with_backrefs('(\\d)(\\d)', 'V\\2\\1')
+        >>> s.str.replace_with_backrefs('(\\\\d)(\\\\d)', 'V\\\\2\\\\1')
         0    AV453
         1    ZV576
         dtype: object
         """
         return self._return_or_inplace(
-            cpp_replace_with_backrefs(self._column, pat, repl), **kwargs
+            cpp_replace_with_backrefs(self._column, pat, repl)
         )
 
-    def slice(self, start=None, stop=None, step=None, **kwargs):
+    def slice(self, start=None, stop=None, step=None):
         """
         Slice substrings from each element in the Series or Index.
 
@@ -856,10 +842,10 @@ class StringMethods(ColumnMethodsMixin):
         """
 
         return self._return_or_inplace(
-            cpp_slice_strings(self._column, start, stop, step), **kwargs,
+            cpp_slice_strings(self._column, start, stop, step),
         )
 
-    def isinteger(self, **kwargs):
+    def isinteger(self):
         """
         Check whether all characters in each string form integer.
 
@@ -917,9 +903,9 @@ class StringMethods(ColumnMethodsMixin):
         2    False
         dtype: bool
         """
-        return self._return_or_inplace(cpp_is_integer(self._column), **kwargs)
+        return self._return_or_inplace(cpp_is_integer(self._column))
 
-    def ishex(self, **kwargs):
+    def ishex(self):
         """
         Check whether all characters in each string form a hex integer.
 
@@ -956,9 +942,9 @@ class StringMethods(ColumnMethodsMixin):
         4     True
         dtype: bool
         """
-        return self._return_or_inplace(str_cast.is_hex(self._column), **kwargs)
+        return self._return_or_inplace(str_cast.is_hex(self._column))
 
-    def istimestamp(self, format, **kwargs):
+    def istimestamp(self, format):
         """
         Check whether all characters in each string can be converted to
         a timestamp using the given format.
@@ -979,10 +965,10 @@ class StringMethods(ColumnMethodsMixin):
         dtype: bool
         """
         return self._return_or_inplace(
-            str_cast.istimestamp(self._column, format), **kwargs
+            str_cast.istimestamp(self._column, format)
         )
 
-    def isfloat(self, **kwargs):
+    def isfloat(self):
         """
         Check whether all characters in each string form floating value.
 
@@ -1043,9 +1029,9 @@ class StringMethods(ColumnMethodsMixin):
         3    False
         dtype: bool
         """
-        return self._return_or_inplace(cpp_is_float(self._column), **kwargs)
+        return self._return_or_inplace(cpp_is_float(self._column))
 
-    def isdecimal(self, **kwargs):
+    def isdecimal(self):
         """
         Check whether all characters in each string are decimal.
 
@@ -1104,9 +1090,9 @@ class StringMethods(ColumnMethodsMixin):
         3    False
         dtype: bool
         """
-        return self._return_or_inplace(cpp_is_decimal(self._column), **kwargs)
+        return self._return_or_inplace(cpp_is_decimal(self._column))
 
-    def isalnum(self, **kwargs):
+    def isalnum(self):
         """
         Check whether all characters in each string are alphanumeric.
 
@@ -1173,9 +1159,9 @@ class StringMethods(ColumnMethodsMixin):
         2    False
         dtype: bool
         """
-        return self._return_or_inplace(cpp_is_alnum(self._column), **kwargs)
+        return self._return_or_inplace(cpp_is_alnum(self._column))
 
-    def isalpha(self, **kwargs):
+    def isalpha(self):
         """
         Check whether all characters in each string are alphabetic.
 
@@ -1229,9 +1215,9 @@ class StringMethods(ColumnMethodsMixin):
         3    False
         dtype: bool
         """
-        return self._return_or_inplace(cpp_is_alpha(self._column), **kwargs)
+        return self._return_or_inplace(cpp_is_alpha(self._column))
 
-    def isdigit(self, **kwargs):
+    def isdigit(self):
         """
         Check whether all characters in each string are digits.
 
@@ -1291,9 +1277,9 @@ class StringMethods(ColumnMethodsMixin):
         3    False
         dtype: bool
         """
-        return self._return_or_inplace(cpp_is_digit(self._column), **kwargs)
+        return self._return_or_inplace(cpp_is_digit(self._column))
 
-    def isnumeric(self, **kwargs):
+    def isnumeric(self):
         """
         Check whether all characters in each string are numeric.
 
@@ -1359,9 +1345,9 @@ class StringMethods(ColumnMethodsMixin):
         3    False
         dtype: bool
         """
-        return self._return_or_inplace(cpp_is_numeric(self._column), **kwargs)
+        return self._return_or_inplace(cpp_is_numeric(self._column))
 
-    def isupper(self, **kwargs):
+    def isupper(self):
         """
         Check whether all characters in each string are uppercase.
 
@@ -1416,9 +1402,9 @@ class StringMethods(ColumnMethodsMixin):
         3    False
         dtype: bool
         """
-        return self._return_or_inplace(cpp_is_upper(self._column), **kwargs)
+        return self._return_or_inplace(cpp_is_upper(self._column))
 
-    def islower(self, **kwargs):
+    def islower(self):
         """
         Check whether all characters in each string are lowercase.
 
@@ -1473,9 +1459,9 @@ class StringMethods(ColumnMethodsMixin):
         3    False
         dtype: bool
         """
-        return self._return_or_inplace(cpp_is_lower(self._column), **kwargs)
+        return self._return_or_inplace(cpp_is_lower(self._column))
 
-    def isipv4(self, **kwargs):
+    def isipv4(self):
         """
         Check whether all characters in each string form an IPv4 address.
 
@@ -1497,11 +1483,9 @@ class StringMethods(ColumnMethodsMixin):
         3    False
         dtype: bool
         """
-        return self._return_or_inplace(
-            str_cast.is_ipv4(self._column), **kwargs
-        )
+        return self._return_or_inplace(str_cast.is_ipv4(self._column))
 
-    def lower(self, **kwargs):
+    def lower(self):
         """
         Converts all characters to lowercase.
 
@@ -1538,9 +1522,9 @@ class StringMethods(ColumnMethodsMixin):
         3              swapcase
         dtype: object
         """
-        return self._return_or_inplace(cpp_to_lower(self._column), **kwargs)
+        return self._return_or_inplace(cpp_to_lower(self._column))
 
-    def upper(self, **kwargs):
+    def upper(self):
         """
         Convert each string to uppercase.
         This only applies to ASCII characters at this time.
@@ -1587,9 +1571,9 @@ class StringMethods(ColumnMethodsMixin):
         3              SWAPCASE
         dtype: object
         """
-        return self._return_or_inplace(cpp_to_upper(self._column), **kwargs)
+        return self._return_or_inplace(cpp_to_upper(self._column))
 
-    def capitalize(self, **kwargs):
+    def capitalize(self):
         """
         Convert strings in the Series/Index to be capitalized.
         This only applies to ASCII characters at this time.
@@ -1615,9 +1599,9 @@ class StringMethods(ColumnMethodsMixin):
         1    Goodbye, friend
         dtype: object
         """
-        return self._return_or_inplace(cpp_capitalize(self._column), **kwargs)
+        return self._return_or_inplace(cpp_capitalize(self._column))
 
-    def swapcase(self, **kwargs):
+    def swapcase(self):
         """
         Change each lowercase character to uppercase and vice versa.
         This only applies to ASCII characters at this time.
@@ -1660,9 +1644,9 @@ class StringMethods(ColumnMethodsMixin):
         3              sWaPcAsE
         dtype: object
         """
-        return self._return_or_inplace(cpp_swapcase(self._column), **kwargs)
+        return self._return_or_inplace(cpp_swapcase(self._column))
 
-    def title(self, **kwargs):
+    def title(self):
         """
         Uppercase the first letter of each letter after a space
         and lowercase the rest.
@@ -1705,9 +1689,9 @@ class StringMethods(ColumnMethodsMixin):
         3              Swapcase
         dtype: object
         """
-        return self._return_or_inplace(cpp_title(self._column), **kwargs)
+        return self._return_or_inplace(cpp_title(self._column))
 
-    def filter_alphanum(self, repl=None, keep=True, **kwargs):
+    def filter_alphanum(self, repl=None, keep=True):
         """
         Remove non-alphanumeric characters from strings in this column.
 
@@ -1739,11 +1723,10 @@ class StringMethods(ColumnMethodsMixin):
             repl = ""
 
         return self._return_or_inplace(
-            cpp_filter_alphanum(self._column, as_device_scalar(repl), keep),
-            **kwargs,
+            cpp_filter_alphanum(self._column, cudf.Scalar(repl), keep),
         )
 
-    def slice_from(self, starts, stops, **kwargs):
+    def slice_from(self, starts, stops):
         """
         Return substring of each string using positions for each string.
 
@@ -1784,10 +1767,9 @@ class StringMethods(ColumnMethodsMixin):
             cpp_slice_from(
                 self._column, column.as_column(starts), column.as_column(stops)
             ),
-            **kwargs,
         )
 
-    def slice_replace(self, start=None, stop=None, repl=None, **kwargs):
+    def slice_replace(self, start=None, stop=None, repl=None):
         """
         Replace the specified section of each string with a new string.
 
@@ -1869,13 +1851,10 @@ class StringMethods(ColumnMethodsMixin):
             repl = ""
 
         return self._return_or_inplace(
-            cpp_slice_replace(
-                self._column, start, stop, as_device_scalar(repl)
-            ),
-            **kwargs,
+            cpp_slice_replace(self._column, start, stop, cudf.Scalar(repl)),
         )
 
-    def insert(self, start=0, repl=None, **kwargs):
+    def insert(self, start=0, repl=None):
         """
         Insert the specified string into each string in the specified
         position.
@@ -1922,11 +1901,10 @@ class StringMethods(ColumnMethodsMixin):
             repl = ""
 
         return self._return_or_inplace(
-            cpp_string_insert(self._column, start, as_device_scalar(repl)),
-            **kwargs,
+            cpp_string_insert(self._column, start, cudf.Scalar(repl)),
         )
 
-    def get(self, i=0, **kwargs):
+    def get(self, i=0):
         """
         Extract element from each component at specified position.
 
@@ -1968,11 +1946,9 @@ class StringMethods(ColumnMethodsMixin):
         dtype: object
         """
 
-        return self._return_or_inplace(
-            cpp_string_get(self._column, i), **kwargs
-        )
+        return self._return_or_inplace(cpp_string_get(self._column, i))
 
-    def split(self, pat=None, n=-1, expand=None, **kwargs):
+    def split(self, pat=None, n=-1, expand=None):
         """
         Split strings around given separator/delimiter.
 
@@ -1987,11 +1963,18 @@ class StringMethods(ColumnMethodsMixin):
         n : int, default -1 (all)
             Limit number of splits in output. `None`, 0, and -1 will all be
             interpreted as "all splits".
+        expand : bool, default False
+            Expand the split strings into separate columns.
+
+            * If ``True``, return DataFrame/MultiIndex expanding
+              dimensionality.
+            * If ``False``, return Series/Index, containing lists
+              of strings.
 
         Returns
         -------
-        DataFrame
-            Returns a DataFrame with each split as a column.
+        Series, Index, DataFrame or MultiIndex
+            Type matches caller unless ``expand=True`` (see Notes).
 
         See also
         --------
@@ -2007,15 +1990,17 @@ class StringMethods(ColumnMethodsMixin):
 
         Notes
         -----
-        The parameter `expand` is not yet supported and will raise a
-        NotImplementedError if anything other than the default value
-        is set. The handling of the n keyword depends on the number
+        The handling of the n keyword depends on the number
         of found splits:
 
             - If found splits > n, make first n splits only
             - If found splits <= n, make all splits
             - If for a certain row the number of found
               splits < n, append None for padding up to n
+              if ``expand=True``.
+
+        If using ``expand=True``, Series and Index callers return
+        DataFrame and MultiIndex objects, respectively.
 
         Examples
         --------
@@ -2026,52 +2011,88 @@ class StringMethods(ColumnMethodsMixin):
         >>> s
         0            this is a regular sentence
         1    https://docs.python.org/index.html
-        2                                  None
+        2                                  <NA>
         dtype: object
+
+        In the default setting, the string is split by whitespace.
+
+        >>> s.str.split()
+        0        [this, is, a, regular, sentence]
+        1    [https://docs.python.org/index.html]
+        2                                    None
+        dtype: list
+
+        Without the ``n`` parameter, the outputs of ``rsplit``
+        and ``split`` are identical.
+
+        >>> s.str.rsplit()
+        0        [this, is, a, regular, sentence]
+        1    [https://docs.python.org/index.html]
+        2                                    None
+        dtype: list
 
         The `n` parameter can be used to limit the number of
         splits on the delimiter.
 
         >>> s.str.split(n=2)
-                                            0     1                   2
-        0                                this    is  a regular sentence
-        1  https://docs.python.org/index.html  None                None
-        2                                None  None                None
+        0          [this, is, a regular sentence]
+        1    [https://docs.python.org/index.html]
+        2                                    None
+        dtype: list
 
         The `pat` parameter can be used to split by other characters.
 
-        >>> s.str.split(pat = "/")
-                                    0     1                2           3
-        0  this is a regular sentence  None             None        None
-        1                      https:        docs.python.org  index.html
-        2                        None  None             None        None
+        >>> s.str.split(pat="/")
+        0               [this is a regular sentence]
+        1    [https:, , docs.python.org, index.html]
+        2                                       None
+        dtype: list
+
+        When using ``expand=True``, the split elements will expand out
+        into separate columns. If ``<NA>`` value is present, it is propagated
+        throughout the columns during the split.
+
+        >>> s.str.split(expand=True)
+                                            0     1     2        3         4
+        0                                this    is     a  regular  sentence
+        1  https://docs.python.org/index.html  <NA>  <NA>     <NA>      <NA>
+        2                                <NA>  <NA>  <NA>     <NA>      <NA>
         """
+
         if expand is None:
-            expand = True
-            warnings.warn("`expand` parameter defatults to True.")
-        elif expand is not True:
-            raise NotImplementedError(
-                "`expand=False` setting is not supported yet"
+            expand = False
+
+        if expand not in (True, False):
+            raise ValueError(
+                f"expand parameter accepts only : [True, False], "
+                f"got {expand}"
             )
 
         # Pandas treats 0 as all
         if n == 0:
             n = -1
 
-        kwargs.setdefault("expand", expand)
         if pat is None:
             pat = ""
 
-        result_table = cpp_split(self._column, as_device_scalar(pat, "str"), n)
-        if len(result_table._data) == 1:
-            if result_table._data[0].null_count == len(self._parent):
-                result_table = []
+        if expand:
             if self._column.null_count == len(self._column):
                 result_table = [self._column.copy()]
+            else:
+                result_table = cpp_split(
+                    self._column, cudf.Scalar(pat, "str"), n
+                )
+                if len(result_table._data) == 1:
+                    if result_table._data[0].null_count == len(self._parent):
+                        result_table = []
+        else:
+            result_table = cpp_split_record(
+                self._column, cudf.Scalar(pat, "str"), n
+            )
 
-        return self._return_or_inplace(result_table, **kwargs,)
+        return self._return_or_inplace(result_table, expand=expand)
 
-    def rsplit(self, pat=None, n=-1, expand=None, **kwargs):
+    def rsplit(self, pat=None, n=-1, expand=None):
         """
         Split strings around given separator/delimiter.
 
@@ -2086,11 +2107,18 @@ class StringMethods(ColumnMethodsMixin):
         n : int, default -1 (all)
             Limit number of splits in output. `None`, 0, and -1 will all be
             interpreted as "all splits".
+        expand : bool, default False
+            Expand the split strings into separate columns.
+
+            * If ``True``, return DataFrame/MultiIndex expanding
+              dimensionality.
+            * If ``False``, return Series/Index, containing lists
+              of strings.
 
         Returns
         -------
-        DataFrame or MultiIndex
-            Returns a DataFrame/MultiIndex with each split as a column.
+        Series, Index, DataFrame or MultiIndex
+            Type matches caller unless ``expand=True`` (see Notes).
 
         See also
         --------
@@ -2105,28 +2133,73 @@ class StringMethods(ColumnMethodsMixin):
 
         Notes
         -----
-        The parameter `expand` is not yet supported and will raise a
-        `NotImplementedError` if anything other than the default value is
-        set. The handling of the n keyword depends on the number of
+        The handling of the n keyword depends on the number of
         found splits:
 
             - If found splits > n, make first n splits only
             - If found splits <= n, make all splits
             - If for a certain row the number of found splits < n,
-              append None for padding up to n.
+              append None for padding up to n if ``expand=True``.
+
+        If using ``expand=True``, Series and Index callers return
+        DataFrame and MultiIndex objects, respectively.
 
         Examples
         --------
         >>> import cudf
-        >>> data = ["this is a regular sentence",
-        ... "https://docs.python.org/3/tutorial/index.html",
-        ... None]
-        >>> s = cudf.Series(data)
+        >>> s = cudf.Series(
+        ...     [
+        ...         "this is a regular sentence",
+        ...         "https://docs.python.org/3/tutorial/index.html",
+        ...         None
+        ...     ]
+        ... )
+        >>> s
+        0                       this is a regular sentence
+        1    https://docs.python.org/3/tutorial/index.html
+        2                                             <NA>
+        dtype: object
+
+        In the default setting, the string is split by whitespace.
+
+        >>> s.str.rsplit()
+        0                   [this, is, a, regular, sentence]
+        1    [https://docs.python.org/3/tutorial/index.html]
+        2                                               None
+        dtype: list
+
+        Without the ``n`` parameter, the outputs of ``rsplit``
+        and ``split`` are identical.
+
+        >>> s.str.split()
+        0                   [this, is, a, regular, sentence]
+        1    [https://docs.python.org/3/tutorial/index.html]
+        2                                               None
+        dtype: list
+
+        The n parameter can be used to limit the number of
+        splits on the delimiter. The outputs of split and rsplit are different.
+
         >>> s.str.rsplit(n=2)
+        0                     [this is a, regular, sentence]
+        1    [https://docs.python.org/3/tutorial/index.html]
+        2                                               None
+        dtype: list
+        >>> s.str.split(n=2)
+        0                     [this, is, a regular sentence]
+        1    [https://docs.python.org/3/tutorial/index.html]
+        2                                               None
+        dtype: list
+
+        When using ``expand=True``, the split elements will expand
+        out into separate columns. If ``<NA>`` value is present,
+        it is propagated throughout the columns during the split.
+
+        >>> s.str.rsplit(n=2, expand=True)
                                                        0        1         2
         0                                      this is a  regular  sentence
-        1  https://docs.python.org/3/tutorial/index.html     None      None
-        2                                           None     None      None
+        1  https://docs.python.org/3/tutorial/index.html     <NA>      <NA>
+        2                                           <NA>     <NA>      <NA>
 
         For slightly more complex use cases like splitting the
         html document name from a url, a combination of parameter
@@ -2134,36 +2207,41 @@ class StringMethods(ColumnMethodsMixin):
 
         >>> s.str.rsplit("/", n=1, expand=True)
                                             0           1
-        0          this is a regular sentence        None
+        0          this is a regular sentence        <NA>
         1  https://docs.python.org/3/tutorial  index.html
-        2                                None        None
+        2                                <NA>        <NA>
         """
+
         if expand is None:
-            expand = True
-            warnings.warn("`expand` parameter defatults to True.")
-        elif expand is not True:
-            raise NotImplementedError(
-                "`expand=False` setting is not supported yet"
+            expand = False
+
+        if expand not in (True, False):
+            raise ValueError(
+                f"expand parameter accepts only : [True, False], "
+                f"got {expand}"
             )
 
         # Pandas treats 0 as all
         if n == 0:
             n = -1
 
-        kwargs.setdefault("expand", expand)
         if pat is None:
             pat = ""
 
-        result_table = cpp_rsplit(self._column, as_device_scalar(pat), n)
-        if len(result_table._data) == 1:
-            if result_table._data[0].null_count == len(self._parent):
-                result_table = []
-            elif self._parent.null_count == len(self._parent):
+        if expand:
+            if self._column.null_count == len(self._column):
                 result_table = [self._column.copy()]
+            else:
+                result_table = cpp_rsplit(self._column, cudf.Scalar(pat), n)
+                if len(result_table._data) == 1:
+                    if result_table._data[0].null_count == len(self._parent):
+                        result_table = []
+        else:
+            result_table = cpp_rsplit_record(self._column, cudf.Scalar(pat), n)
 
-        return self._return_or_inplace(result_table, **kwargs)
+        return self._return_or_inplace(result_table, expand=expand)
 
-    def partition(self, sep=" ", expand=True, **kwargs):
+    def partition(self, sep=" ", expand=True):
         """
         Split the string at the first occurrence of sep.
 
@@ -2242,15 +2320,14 @@ class StringMethods(ColumnMethodsMixin):
                 "`expand=False` is currently not supported"
             )
 
-        kwargs.setdefault("expand", expand)
         if sep is None:
             sep = " "
 
         return self._return_or_inplace(
-            cpp_partition(self._column, as_device_scalar(sep)), **kwargs
+            cpp_partition(self._column, cudf.Scalar(sep)), expand=expand
         )
 
-    def rpartition(self, sep=" ", expand=True, **kwargs):
+    def rpartition(self, sep=" ", expand=True):
         """
         Split the string at the last occurrence of sep.
 
@@ -2313,15 +2390,14 @@ class StringMethods(ColumnMethodsMixin):
                 "`expand=False` is currently not supported"
             )
 
-        kwargs.setdefault("expand", expand)
         if sep is None:
             sep = " "
 
         return self._return_or_inplace(
-            cpp_rpartition(self._column, as_device_scalar(sep)), **kwargs
+            cpp_rpartition(self._column, cudf.Scalar(sep)), expand=expand
         )
 
-    def pad(self, width, side="left", fillchar=" ", **kwargs):
+    def pad(self, width, side="left", fillchar=" "):
         """
         Pad strings in the Series/Index up to width.
 
@@ -2403,10 +2479,10 @@ class StringMethods(ColumnMethodsMixin):
             )
 
         return self._return_or_inplace(
-            cpp_pad(self._column, width, fillchar, side), **kwargs
+            cpp_pad(self._column, width, fillchar, side)
         )
 
-    def zfill(self, width, **kwargs):
+    def zfill(self, width):
         """
         Pad strings in the Series/Index by prepending ‘0’ characters.
 
@@ -2477,11 +2553,9 @@ class StringMethods(ColumnMethodsMixin):
             msg = f"width must be of integer type, not {type(width).__name__}"
             raise TypeError(msg)
 
-        return self._return_or_inplace(
-            cpp_zfill(self._column, width), **kwargs
-        )
+        return self._return_or_inplace(cpp_zfill(self._column, width))
 
-    def center(self, width, fillchar=" ", **kwargs):
+    def center(self, width, fillchar=" "):
         """
         Filling left and right side of strings in the Series/Index with an
         additional character.
@@ -2550,10 +2624,10 @@ class StringMethods(ColumnMethodsMixin):
             raise TypeError(msg)
 
         return self._return_or_inplace(
-            cpp_center(self._column, width, fillchar), **kwargs
+            cpp_center(self._column, width, fillchar)
         )
 
-    def ljust(self, width, fillchar=" ", **kwargs):
+    def ljust(self, width, fillchar=" "):
         """
         Filling right side of strings in the Series/Index with an additional
         character. Equivalent to `str.ljust()
@@ -2604,10 +2678,10 @@ class StringMethods(ColumnMethodsMixin):
             raise TypeError(msg)
 
         return self._return_or_inplace(
-            cpp_ljust(self._column, width, fillchar), **kwargs
+            cpp_ljust(self._column, width, fillchar)
         )
 
-    def rjust(self, width, fillchar=" ", **kwargs):
+    def rjust(self, width, fillchar=" "):
         """
         Filling left side of strings in the Series/Index with an additional
         character. Equivalent to `str.rjust()
@@ -2658,10 +2732,10 @@ class StringMethods(ColumnMethodsMixin):
             raise TypeError(msg)
 
         return self._return_or_inplace(
-            cpp_rjust(self._column, width, fillchar), **kwargs
+            cpp_rjust(self._column, width, fillchar)
         )
 
-    def strip(self, to_strip=None, **kwargs):
+    def strip(self, to_strip=None):
         """
         Remove leading and trailing characters.
 
@@ -2717,10 +2791,10 @@ class StringMethods(ColumnMethodsMixin):
             to_strip = ""
 
         return self._return_or_inplace(
-            cpp_strip(self._column, as_device_scalar(to_strip)), **kwargs
+            cpp_strip(self._column, cudf.Scalar(to_strip))
         )
 
-    def lstrip(self, to_strip=None, **kwargs):
+    def lstrip(self, to_strip=None):
         """
         Remove leading and trailing characters.
 
@@ -2764,10 +2838,10 @@ class StringMethods(ColumnMethodsMixin):
             to_strip = ""
 
         return self._return_or_inplace(
-            cpp_lstrip(self._column, as_device_scalar(to_strip)), **kwargs
+            cpp_lstrip(self._column, cudf.Scalar(to_strip))
         )
 
-    def rstrip(self, to_strip=None, **kwargs):
+    def rstrip(self, to_strip=None):
         """
         Remove leading and trailing characters.
 
@@ -2819,7 +2893,7 @@ class StringMethods(ColumnMethodsMixin):
             to_strip = ""
 
         return self._return_or_inplace(
-            cpp_rstrip(self._column, as_device_scalar(to_strip)), **kwargs
+            cpp_rstrip(self._column, cudf.Scalar(to_strip))
         )
 
     def wrap(self, width, **kwargs):
@@ -2914,9 +2988,9 @@ class StringMethods(ColumnMethodsMixin):
                 "`break_on_hyphens`=False"
             )
 
-        return self._return_or_inplace(cpp_wrap(self._column, width), **kwargs)
+        return self._return_or_inplace(cpp_wrap(self._column, width))
 
-    def count(self, pat, flags=0, **kwargs):
+    def count(self, pat, flags=0):
         """
         Count occurrences of pattern in each string of the Series/Index.
 
@@ -2974,11 +3048,9 @@ class StringMethods(ColumnMethodsMixin):
         if flags != 0:
             raise NotImplementedError("`flags` parameter is not yet supported")
 
-        return self._return_or_inplace(
-            cpp_count_re(self._column, pat), **kwargs
-        )
+        return self._return_or_inplace(cpp_count_re(self._column, pat))
 
-    def findall(self, pat, flags=0, **kwargs):
+    def findall(self, pat, flags=0, expand=True):
         """
         Find all occurrences of pattern or regular expression in the
         Series/Index.
@@ -3042,12 +3114,11 @@ class StringMethods(ColumnMethodsMixin):
         if flags != 0:
             raise NotImplementedError("`flags` parameter is not yet supported")
 
-        kwargs.setdefault("expand", True)
         return self._return_or_inplace(
-            cpp_findall(self._column, pat), **kwargs
+            cpp_findall(self._column, pat), expand=expand
         )
 
-    def isempty(self, **kwargs):
+    def isempty(self):
         """
         Check whether each string is an empty string.
 
@@ -3067,11 +3138,9 @@ class StringMethods(ColumnMethodsMixin):
         4    False
         dtype: bool
         """
-        return self._return_or_inplace(
-            (self._parent == "").fillna(False), **kwargs
-        )
+        return self._return_or_inplace((self._parent == "").fillna(False))
 
-    def isspace(self, **kwargs):
+    def isspace(self):
         """
         Check whether all characters in each string are whitespace.
 
@@ -3125,9 +3194,9 @@ class StringMethods(ColumnMethodsMixin):
         2    False
         dtype: bool
         """
-        return self._return_or_inplace(cpp_isspace(self._column), **kwargs)
+        return self._return_or_inplace(cpp_isspace(self._column))
 
-    def endswith(self, pat, **kwargs):
+    def endswith(self, pat):
         """
         Test if the end of each string element matches a pattern.
 
@@ -3168,28 +3237,20 @@ class StringMethods(ColumnMethodsMixin):
         3     null
         dtype: bool
         """
-        if "na" in kwargs:
-            warnings.warn(
-                "`na` parameter is not yet supported, "
-                "as cudf uses native strings instead of Python objects"
-            )
-
         if pat is None:
             result_col = column.column_empty(
                 len(self._column), dtype="bool", masked=True
             )
         elif is_scalar(pat):
-            result_col = cpp_endswith(
-                self._column, as_device_scalar(pat, "str")
-            )
+            result_col = cpp_endswith(self._column, cudf.Scalar(pat, "str"))
         else:
             result_col = cpp_endswith_multiple(
                 self._column, column.as_column(pat, dtype="str")
             )
 
-        return self._return_or_inplace(result_col, **kwargs)
+        return self._return_or_inplace(result_col)
 
-    def startswith(self, pat, **kwargs):
+    def startswith(self, pat):
         """
         Test if the start of each string element matches a pattern.
 
@@ -3235,28 +3296,20 @@ class StringMethods(ColumnMethodsMixin):
         3     null
         dtype: bool
         """
-        if "na" in kwargs:
-            warnings.warn(
-                "`na` parameter is not yet supported, "
-                "as cudf uses native strings instead of Python objects"
-            )
-
         if pat is None:
             result_col = column.column_empty(
                 len(self._column), dtype="bool", masked=True
             )
         elif is_scalar(pat):
-            result_col = cpp_startswith(
-                self._column, as_device_scalar(pat, "str")
-            )
+            result_col = cpp_startswith(self._column, cudf.Scalar(pat, "str"))
         else:
             result_col = cpp_startswith_multiple(
                 self._column, column.as_column(pat, dtype="str")
             )
 
-        return self._return_or_inplace(result_col, **kwargs)
+        return self._return_or_inplace(result_col)
 
-    def find(self, sub, start=0, end=None, **kwargs):
+    def find(self, sub, start=0, end=None):
         """
         Return lowest indexes in each strings in the Series/Index
         where the substring is fully contained between ``[start:end]``.
@@ -3306,12 +3359,12 @@ class StringMethods(ColumnMethodsMixin):
             end = -1
 
         result_col = cpp_find(
-            self._column, as_device_scalar(sub, "str"), start, end
+            self._column, cudf.Scalar(sub, "str"), start, end
         )
 
-        return self._return_or_inplace(result_col, **kwargs)
+        return self._return_or_inplace(result_col)
 
-    def rfind(self, sub, start=0, end=None, **kwargs):
+    def rfind(self, sub, start=0, end=None):
         """
         Return highest indexes in each strings in the Series/Index
         where the substring is fully contained between ``[start:end]``.
@@ -3365,12 +3418,12 @@ class StringMethods(ColumnMethodsMixin):
             end = -1
 
         result_col = cpp_rfind(
-            self._column, as_device_scalar(sub, "str"), start, end
+            self._column, cudf.Scalar(sub, "str"), start, end
         )
 
-        return self._return_or_inplace(result_col, **kwargs)
+        return self._return_or_inplace(result_col)
 
-    def index(self, sub, start=0, end=None, **kwargs):
+    def index(self, sub, start=0, end=None):
         """
         Return lowest indexes in each strings where the substring
         is fully contained between ``[start:end]``. This is the same
@@ -3420,17 +3473,17 @@ class StringMethods(ColumnMethodsMixin):
             end = -1
 
         result_col = cpp_find(
-            self._column, as_device_scalar(sub, "str"), start, end
+            self._column, cudf.Scalar(sub, "str"), start, end
         )
 
-        result = self._return_or_inplace(result_col, **kwargs)
+        result = self._return_or_inplace(result_col)
 
         if (result == -1).any():
             raise ValueError("substring not found")
         else:
             return result
 
-    def rindex(self, sub, start=0, end=None, **kwargs):
+    def rindex(self, sub, start=0, end=None):
         """
         Return highest indexes in each strings where the substring
         is fully contained between ``[start:end]``. This is the same
@@ -3480,17 +3533,17 @@ class StringMethods(ColumnMethodsMixin):
             end = -1
 
         result_col = cpp_rfind(
-            self._column, as_device_scalar(sub, "str"), start, end
+            self._column, cudf.Scalar(sub, "str"), start, end
         )
 
-        result = self._return_or_inplace(result_col, **kwargs)
+        result = self._return_or_inplace(result_col)
 
         if (result == -1).any():
             raise ValueError("substring not found")
         else:
             return result
 
-    def match(self, pat, case=True, flags=0, **kwargs):
+    def match(self, pat, case=True, flags=0):
         """
         Determine if each string matches a regular expression.
 
@@ -3533,17 +3586,9 @@ class StringMethods(ColumnMethodsMixin):
         if flags != 0:
             raise NotImplementedError("`flags` parameter is not yet supported")
 
-        if "na" in kwargs:
-            warnings.warn(
-                "`na` parameter is not yet supported, "
-                "as cudf uses native strings instead of Python objects"
-            )
+        return self._return_or_inplace(cpp_match_re(self._column, pat))
 
-        return self._return_or_inplace(
-            cpp_match_re(self._column, pat), **kwargs
-        )
-
-    def url_decode(self, **kwargs):
+    def url_decode(self):
         """
         Returns a URL-decoded format of each string.
         No format checking is performed. All characters
@@ -3571,9 +3616,9 @@ class StringMethods(ColumnMethodsMixin):
         dtype: object
         """
 
-        return self._return_or_inplace(cpp_url_decode(self._column), **kwargs)
+        return self._return_or_inplace(cpp_url_decode(self._column))
 
-    def url_encode(self, **kwargs):
+    def url_encode(self):
         """
         Returns a URL-encoded format of each string.
         No format checking is performed.
@@ -3602,9 +3647,9 @@ class StringMethods(ColumnMethodsMixin):
         1    https%3A%2F%2Fmedium.com%2Frapids-ai
         dtype: object
         """
-        return self._return_or_inplace(cpp_url_encode(self._column), **kwargs)
+        return self._return_or_inplace(cpp_url_encode(self._column))
 
-    def code_points(self, **kwargs):
+    def code_points(self):
         """
         Returns an array by filling it with the UTF-8 code point
         values for each character of each string.
@@ -3644,7 +3689,7 @@ class StringMethods(ColumnMethodsMixin):
         elif isinstance(self._parent, cudf.Index):
             return cudf.core.index.as_index(new_col, name=self._parent.name)
 
-    def translate(self, table, **kwargs):
+    def translate(self, table):
         """
         Map all characters in the string through the given
         mapping table.
@@ -3685,11 +3730,9 @@ class StringMethods(ColumnMethodsMixin):
         dtype: object
         """
         table = str.maketrans(table)
-        return self._return_or_inplace(
-            cpp_translate(self._column, table), **kwargs
-        )
+        return self._return_or_inplace(cpp_translate(self._column, table))
 
-    def filter_characters(self, table, keep=True, repl=None, **kwargs):
+    def filter_characters(self, table, keep=True, repl=None):
         """
         Remove characters from each string using the character ranges
         in the given mapping table.
@@ -3736,12 +3779,11 @@ class StringMethods(ColumnMethodsMixin):
         table = str.maketrans(table)
         return self._return_or_inplace(
             cpp_filter_characters(
-                self._column, table, keep, as_device_scalar(repl)
+                self._column, table, keep, cudf.Scalar(repl)
             ),
-            **kwargs,
         )
 
-    def normalize_spaces(self, **kwargs):
+    def normalize_spaces(self):
         """
         Remove extra whitespace between tokens and trim whitespace
         from the beginning and the end of each string.
@@ -3759,11 +3801,9 @@ class StringMethods(ColumnMethodsMixin):
         1    test string
         dtype: object
         """
-        return self._return_or_inplace(
-            cpp_normalize_spaces(self._column), **kwargs
-        )
+        return self._return_or_inplace(cpp_normalize_spaces(self._column))
 
-    def normalize_characters(self, do_lower=True, **kwargs):
+    def normalize_characters(self, do_lower=True):
         """
         Normalizes strings characters for tokenizing.
 
@@ -3809,10 +3849,10 @@ class StringMethods(ColumnMethodsMixin):
         dtype: object
         """
         return self._return_or_inplace(
-            cpp_normalize_characters(self._column, do_lower), **kwargs
+            cpp_normalize_characters(self._column, do_lower)
         )
 
-    def tokenize(self, delimiter=" ", **kwargs):
+    def tokenize(self, delimiter=" "):
         """
         Each string is split into tokens using the provided delimiter(s).
         The sequence returned contains the tokens in the order
@@ -3842,12 +3882,24 @@ class StringMethods(ColumnMethodsMixin):
         dtype: object
         """
         delimiter = _massage_string_arg(delimiter, "delimiter", allow_col=True)
-        kwargs.setdefault("retain_index", False)
-        return self._return_or_inplace(
-            cpp_tokenize(self._column, delimiter), **kwargs
-        )
 
-    def detokenize(self, indices, separator=" ", **kwargs):
+        if isinstance(delimiter, Column):
+            return self._return_or_inplace(
+                cpp_tokenize_column(self._column, delimiter),
+                retain_index=False,
+            )
+        elif isinstance(delimiter, cudf.Scalar):
+            return self._return_or_inplace(
+                cpp_tokenize_scalar(self._column, delimiter),
+                retain_index=False,
+            )
+        else:
+            raise TypeError(
+                f"Expected a Scalar or Column\
+                for delimiters, but got {type(delimiter)}"
+            )
+
+    def detokenize(self, indices, separator=" "):
         """
         Combines tokens into strings by concatenating them in the order
         in which they appear in the ``indices`` column. The ``separator`` is
@@ -3877,12 +3929,12 @@ class StringMethods(ColumnMethodsMixin):
         dtype: object
         """
         separator = _massage_string_arg(separator, "separator")
-        kwargs.setdefault("retain_index", False)
         return self._return_or_inplace(
-            cpp_detokenize(self._column, indices._column, separator), **kwargs
+            cpp_detokenize(self._column, indices._column, separator),
+            retain_index=False,
         )
 
-    def character_tokenize(self, **kwargs):
+    def character_tokenize(self):
         """
         Each string is split into individual characters.
         The sequence returned contains each character as an individual string.
@@ -3937,7 +3989,7 @@ class StringMethods(ColumnMethodsMixin):
         elif isinstance(self._parent, cudf.Index):
             return cudf.core.index.as_index(result_col, name=self._parent.name)
 
-    def token_count(self, delimiter=" ", **kwargs):
+    def token_count(self, delimiter=" "):
         """
         Each string is split into tokens using the provided delimiter.
         The returned integer sequence is the number of tokens in each string.
@@ -3964,11 +4016,22 @@ class StringMethods(ColumnMethodsMixin):
         dtype: int32
         """
         delimiter = _massage_string_arg(delimiter, "delimiter", allow_col=True)
-        return self._return_or_inplace(
-            cpp_count_tokens(self._column, delimiter), **kwargs
-        )
+        if isinstance(delimiter, Column):
+            return self._return_or_inplace(
+                cpp_count_tokens_column(self._column, delimiter)
+            )
 
-    def ngrams(self, n=2, separator="_", **kwargs):
+        elif isinstance(delimiter, cudf.Scalar):
+            return self._return_or_inplace(
+                cpp_count_tokens_scalar(self._column, delimiter)
+            )
+        else:
+            raise TypeError(
+                f"Expected a Scalar or Column\
+                for delimiters, but got {type(delimiter)}"
+            )
+
+    def ngrams(self, n=2, separator="_"):
         """
         Generate the n-grams from a set of tokens, each record
         in series is treated a token.
@@ -4001,12 +4064,11 @@ class StringMethods(ColumnMethodsMixin):
         dtype: object
         """
         separator = _massage_string_arg(separator, "separator")
-        kwargs.setdefault("retain_index", False)
         return self._return_or_inplace(
-            cpp_generate_ngrams(self._column, n, separator), **kwargs
+            cpp_generate_ngrams(self._column, n, separator), retain_index=False
         )
 
-    def character_ngrams(self, n=2, **kwargs):
+    def character_ngrams(self, n=2):
         """
         Generate the n-grams from characters in a column of strings.
 
@@ -4038,12 +4100,11 @@ class StringMethods(ColumnMethodsMixin):
         4    xyz
         dtype: object
         """
-        kwargs.setdefault("retain_index", False)
         return self._return_or_inplace(
-            cpp_generate_character_ngrams(self._column, n), **kwargs
+            cpp_generate_character_ngrams(self._column, n), retain_index=False
         )
 
-    def ngrams_tokenize(self, n=2, delimiter=" ", separator="_", **kwargs):
+    def ngrams_tokenize(self, n=2, delimiter=" ", separator="_"):
         """
         Generate the n-grams using tokens from each string.
         This will tokenize each string and then generate ngrams for each
@@ -4074,13 +4135,12 @@ class StringMethods(ColumnMethodsMixin):
         """
         delimiter = _massage_string_arg(delimiter, "delimiter")
         separator = _massage_string_arg(separator, "separator")
-        kwargs.setdefault("retain_index", False)
         return self._return_or_inplace(
             cpp_ngrams_tokenize(self._column, n, delimiter, separator),
-            **kwargs,
+            retain_index=False,
         )
 
-    def replace_tokens(self, targets, replacements, delimiter=None, **kwargs):
+    def replace_tokens(self, targets, replacements, delimiter=None):
         """
         The targets tokens are searched for within each string in the series
         and replaced with the corresponding replacements if found.
@@ -4157,13 +4217,12 @@ class StringMethods(ColumnMethodsMixin):
                 self._column,
                 targets_column,
                 replacements_column,
-                as_device_scalar(delimiter, dtype="str"),
+                cudf.Scalar(delimiter, dtype="str"),
             ),
-            **kwargs,
         )
 
     def filter_tokens(
-        self, min_token_length, replacement=None, delimiter=None, **kwargs
+        self, min_token_length, replacement=None, delimiter=None
     ):
         """
         Remove tokens from within each string in the series that are
@@ -4225,10 +4284,9 @@ class StringMethods(ColumnMethodsMixin):
             cpp_filter_tokens(
                 self._column,
                 min_token_length,
-                as_device_scalar(replacement, dtype="str"),
-                as_device_scalar(delimiter, dtype="str"),
+                cudf.Scalar(replacement, dtype="str"),
+                cudf.Scalar(delimiter, dtype="str"),
             ),
-            **kwargs,
         )
 
     def subword_tokenize(
@@ -4239,7 +4297,6 @@ class StringMethods(ColumnMethodsMixin):
         do_lower=True,
         do_truncate=False,
         max_rows_tensor=500,
-        **kwargs,
     ):
         """
         Run CUDA BERT subword tokenizer on cuDF strings column.
@@ -4335,7 +4392,7 @@ class StringMethods(ColumnMethodsMixin):
             cupy.asarray(metadata),
         )
 
-    def porter_stemmer_measure(self, **kwargs):
+    def porter_stemmer_measure(self):
         """
         Compute the Porter Stemmer measure for each string.
         The Porter Stemmer algorithm is described `here
@@ -4355,10 +4412,10 @@ class StringMethods(ColumnMethodsMixin):
         dtype: int32
         """
         return self._return_or_inplace(
-            cpp_porter_stemmer_measure(self._column), **kwargs
+            cpp_porter_stemmer_measure(self._column)
         )
 
-    def is_consonant(self, position, **kwargs):
+    def is_consonant(self, position):
         """
         Return true for strings where the character at ``position`` is a
         consonant. The ``position`` parameter may also be a list of integers
@@ -4396,14 +4453,13 @@ class StringMethods(ColumnMethodsMixin):
                 cpp_is_letter_multi(
                     self._column, ltype, column.as_column(position)
                 ),
-                **kwargs,
             )
 
         return self._return_or_inplace(
-            cpp_is_letter(self._column, ltype, position), **kwargs
+            cpp_is_letter(self._column, ltype, position)
         )
 
-    def is_vowel(self, position, **kwargs):
+    def is_vowel(self, position):
         """
         Return true for strings where the character at ``position`` is a
         vowel -- not a consonant. The ``position`` parameter may also be
@@ -4441,14 +4497,13 @@ class StringMethods(ColumnMethodsMixin):
                 cpp_is_letter_multi(
                     self._column, ltype, column.as_column(position)
                 ),
-                **kwargs,
             )
 
         return self._return_or_inplace(
-            cpp_is_letter(self._column, ltype, position), **kwargs
+            cpp_is_letter(self._column, ltype, position)
         )
 
-    def edit_distance(self, targets, **kwargs):
+    def edit_distance(self, targets):
         """
         The ``targets`` strings are measured against the strings in this
         instance using the Levenshtein edit distance algorithm.
@@ -4494,16 +4549,13 @@ class StringMethods(ColumnMethodsMixin):
             )
 
         return self._return_or_inplace(
-            cpp_edit_distance(self._column, targets_column), **kwargs
+            cpp_edit_distance(self._column, targets_column)
         )
 
 
 def _massage_string_arg(value, name, allow_col=False):
     if isinstance(value, str):
-        return as_device_scalar(value, dtype="str")
-
-    if isinstance(value, DeviceScalar) and is_string_dtype(value.dtype):
-        return value
+        return cudf.Scalar(value, dtype="str")
 
     allowed_types = ["Scalar"]
 
@@ -4692,37 +4744,10 @@ class StringColumn(column.ColumnBase):
         else:
             return self.children[1].size
 
-    def as_numerical_column(self, dtype, **kwargs):
-
+    def as_numerical_column(self, dtype):
         out_dtype = np.dtype(dtype)
-        kwargs.update(dtype=out_dtype)
 
-        if out_dtype.type is np.datetime64:
-            if "format" not in kwargs:
-                if len(self) > 0:
-                    # infer on host from the first not na element
-                    # or return all null column if all values
-                    # are null in current column
-                    if self.null_count == len(self):
-                        return column.column_empty(
-                            len(self), dtype=out_dtype, masked=True
-                        )
-                    else:
-                        fmt = datetime.infer_format(self[self.notna()][0])
-                        kwargs.update(format=fmt)
-
-            # Check for None strings
-            if len(self) > 0 and (self == "None").any():
-                raise ValueError("Could not convert `None` value to datetime")
-
-            boolean_match = self == "NaT"
-        elif out_dtype.type is np.timedelta64:
-            if "format" not in kwargs:
-                if len(self) > 0:
-                    kwargs.update(format="%D days %H:%M:%S")
-
-            boolean_match = self == "NaT"
-        elif out_dtype.kind in {"i", "u"}:
+        if out_dtype.kind in {"i", "u"}:
             if not cpp_is_integer(self).all():
                 raise ValueError(
                     "Could not convert strings to integer "
@@ -4735,22 +4760,55 @@ class StringColumn(column.ColumnBase):
                     "type due to presence of non-floating values."
                 )
 
-        result_col = _str_to_numeric_typecast_functions[out_dtype](
-            self, **kwargs
-        )
-        if (
-            out_dtype.type in (np.datetime64, np.timedelta64)
-        ) and boolean_match.any():
-            result_col[boolean_match] = None
+        result_col = _str_to_numeric_typecast_functions[out_dtype](self)
         return result_col
 
-    def as_datetime_column(self, dtype, **kwargs):
-        return self.as_numerical_column(dtype, **kwargs)
+    def _as_datetime_or_timedelta_column(self, dtype, format):
+        if len(self) == 0:
+            return cudf.core.column.as_column([], dtype=dtype)
 
-    def as_timedelta_column(self, dtype, **kwargs):
-        return self.as_numerical_column(dtype, **kwargs)
+        # Check for None strings
+        if (self == "None").any():
+            raise ValueError("Could not convert `None` value to datetime")
 
-    def as_string_column(self, dtype, **kwargs):
+        casting_func = (
+            str_cast.timestamp2int
+            if dtype.type == np.datetime64
+            else str_cast.timedelta2int
+        )
+        result_col = casting_func(self, dtype, format)
+
+        boolean_match = self == "NaT"
+        if (boolean_match).any():
+            result_col[boolean_match] = None
+
+        return result_col
+
+    def as_datetime_column(self, dtype, format=None):
+        out_dtype = np.dtype(dtype)
+
+        if format is None:
+            # infer on host from the first not na element
+            # or return all null column if all values
+            # are null in current column
+            if self.null_count == len(self):
+                return column.column_empty(
+                    len(self), dtype=out_dtype, masked=True
+                )
+            else:
+                format = datetime.infer_format(self[self.notna()][0])
+
+        return self._as_datetime_or_timedelta_column(out_dtype, format)
+
+    def as_timedelta_column(self, dtype, format=None):
+        out_dtype = np.dtype(dtype)
+
+        if format is None:
+            format = "%D days %H:%M:%S"
+
+        return self._as_datetime_or_timedelta_column(out_dtype, format)
+
+    def as_string_column(self, dtype):
         return self
 
     @property
@@ -4894,6 +4952,11 @@ class StringColumn(column.ColumnBase):
         elif isinstance(other, str) or other is None:
             col = utils.scalar_broadcast_to(
                 other, size=len(self), dtype="object"
+            )
+            return col
+        elif isinstance(other, np.ndarray) and other.ndim == 0:
+            col = utils.scalar_broadcast_to(
+                other.item(), size=len(self), dtype="object"
             )
             return col
         else:
