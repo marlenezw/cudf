@@ -381,7 +381,6 @@ cdef class Column:
 
         data_dtype = col.dtype
         cdef libcudf_types.type_id tid
-
         if is_list_dtype(self.dtype):
             tid = libcudf_types.type_id.LIST
         elif is_struct_dtype(self.dtype):
