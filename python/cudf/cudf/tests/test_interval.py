@@ -7,13 +7,16 @@ import cudf
 from cudf.tests.utils import assert_eq
 
 
-# @pytest.mark.parametrize(
-#     "data",
-#     [1.0, 2.0
-#     ]
-# )
+@pytest.mark.parametrize(
+    "data1, data2",
+    [
+        (1, 1.0, 3),
+        (2, 2.0, 4.0),
+        
+    ]
+)
 
-def test_create_struct_series():
-    expect = pd.Series(pd.Interval(1,4), dtype='interval')
-    got = cudf.Series(pd.Interval(1,4), dtype='interval')
+def test_create_struct_series(data1, data2):
+    expect = pd.Series(pd.Interval(data1,data2), dtype='interval')
+    got = cudf.Series(pd.Interval(data1,data2), dtype='interval')
     assert_eq(expect, got)
