@@ -2212,7 +2212,6 @@ class Frame(libcudf.table.Table):
             if isinstance(other_col, cudf.core.column.IntervalColumn):
                 self._data[name] = col.as_interval_column()
 
-
     def _postprocess_columns(self, other, include_index=True):
         self._copy_categories(other, include_index=include_index)
         self._copy_struct_names(other, include_index=include_index)

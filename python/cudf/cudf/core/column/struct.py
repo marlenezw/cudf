@@ -68,24 +68,25 @@ class StructColumn(ColumnBase):
     def copy(self, deep=True):
         # if isinstance(self.dtype, cudf.core.dtypes.IntervalDtype):
         #     result = super()
-        #     breakpoint() 
+        #     breakpoint()
         # else:
         result = super().copy(deep=deep)
-        #self is the interval column
+        # self is the interval column
         if deep:
             result = result._rename_fields(self.dtype.fields.keys())
         return result
 
     def as_interval_column(self):
         from cudf.core.column import IntervalColumn
-        return IntervalColumn(
-                size=self.size,
-                dtype= cudf.core.dtypes.IntervalDtype(self.dtype.fields['left']),
-                mask=self.mask,
-                 offset=self.offset,
-                null_count=self.null_count,
-                children = self.children)
 
+        return IntervalColumn(
+            size=self.size,
+            dtype=cudf.core.dtypes.IntervalDtype(self.dtype.fields["left"]),
+            mask=self.mask,
+            offset=self.offset,
+            null_count=self.null_count,
+            children=self.children,
+        )
 
     def _rename_fields(self, names):
         """

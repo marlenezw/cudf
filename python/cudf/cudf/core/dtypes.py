@@ -213,25 +213,27 @@ class StructDtype(ExtensionDtype):
     def __repr__(self):
         return f"{type(self).__name__}({self.fields})"
 
+
 class IntervalDtype(StructDtype):
     name = "interval"
-    def __init__(self, subtype, closed='right'):
+
+    def __init__(self, subtype, closed="right"):
         """
         subtype: str, np.dtype
             The dtype of the Interval bounds.
         """
-        super().__init__(
-            fields= {'left': subtype, 'right':subtype}
-        )
+        super().__init__(fields={"left": subtype, "right": subtype})
         self.closed = closed
 
     @property
     def subtype(self):
-        return self.fields['left']
+        return self.fields["left"]
 
     @classmethod
     def from_arrow(cls, typ):
         return IntervalDtype(typ.subtype.to_pandas_dtype())
 
     def to_arrow(self):
-        return ArrowIntervalType(pa.from_numpy_dtype(self.subtype), self.closed)
+        return ArrowIntervalType(
+            pa.from_numpy_dtype(self.subtype), self.closed
+        )

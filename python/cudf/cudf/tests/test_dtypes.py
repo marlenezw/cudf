@@ -10,7 +10,8 @@ from cudf.core.dtypes import (
     CategoricalDtype,
     ListDtype,
     StructDtype,
-    DecimalDtype,
+    # DecimalDtype,
+    IntervalDtype,
 )
 from cudf.tests.utils import assert_eq
 
@@ -135,70 +136,17 @@ def test_struct_dtype_fields(fields):
     assert_eq(dt.fields, fields)
 
 
-def test_decimal_dtype():
-    dt = DecimalDtype(4, 2)
-    assert dt.to_arrow() == pa.decimal128(4, 2)
-    assert dt == DecimalDtype.from_arrow(pa.decimal128(4, 2))
+# def test_decimal_dtype():
+#     dt = DecimalDtype(4, 2)
+#     assert dt.to_arrow() == pa.decimal128(4, 2)
+#     assert dt == DecimalDtype.from_arrow(pa.decimal128(4, 2))
 
 
-@pytest.mark.parametrize(
-    "fields",
-    [
-        {},
-        {"a": "int64"},
-        {"a": "datetime64[ms]"},
-        {"a": "int32", "b": "int64"},
-    ],
-)
+@pytest.mark.parametrize("fields", ["int64", "datetime64[ms]", "int32"])
 def test_interval_dtype_pyarrow_round_trip(fields):
-    #this creates a pyarrow struct Dtype with different 
-    #numerical types. K is the key and v is the numpy dtype thats been changed
-    #to a pyarrow dtype
-    pa_type = pa.struct(
-        {
-            k: cudf.utils.dtypes.np_to_pa_dtype(np.dtype(v))
-            for k, v in fields.items()
-        }
+    pa_array = pd.core.arrays._arrow_utils.ArrowIntervalType(
+        "int64", closed="right"
     )
-    expect = pa_type
-    #testing that using the from and to arrow methods work for the dtypes
+    expect = pa_array
     got = IntervalDtype.from_arrow(expect).to_arrow()
     assert expect.equals(got)
-
-
-def test_interval_dtype_eq():
-    #first creating exactly the same Dtype
-    lhs = IntervalDtype(
-        {"a": "int32", "b": StructDtype({"c": "int64", "ab": "int32"})}
-    )
-    rhs = IntervalDtype(
-        {"a": "int32", "b": StructDtype({"c": "int64", "ab": "int32"})}
-    )
-    assert lhs == rhs
-    #checking that if we changes the second one by removing an element they are seen
-    #as different correctly.
-    rhs = StructDtype({"a": "int32", "b": "int64"})
-    assert lhs != rhs
-    #checking that if we changed the order of the first one they are seen
-    #as different correctly.
-    lhs = StructDtype({"b": "int64", "a": "int32"})
-    assert lhs != rhs
-
-
-@pytest.mark.parametrize(
-    "fields",
-    [
-        {},
-        {"a": "int32"},
-        {"a": "object"},
-        {"a": "str"},
-        {"a": "datetime64[D]"},
-        {"a": "int32", "b": "int64"},
-        {"a": "int32", "b": StructDtype({"a": "int32", "b": "int64"})},
-    ],
-)
-def test_interval_dtype_fields(fields):
-    #check that creating fields in different ways leads to the same result
-    fields = {"a": "int32", "b": StructDtype({"c": "int64", "d": "int32"})}
-    dt = StructDtype(fields)
-    assert_eq(dt.fields, fields)

@@ -1,13 +1,17 @@
 import pyarrow as pa
 import cudf
-import pandas as pd
-from cudf.core.column.column import as_column
 from cudf.core.column import StructColumn
 
-class IntervalColumn(StructColumn):
 
+class IntervalColumn(StructColumn):
     def __init__(
-        self, dtype, mask=None, size=None, offset=0, null_count=None, children=()
+        self,
+        dtype,
+        mask=None,
+        size=None,
+        offset=0,
+        null_count=None,
+        children=(),
     ):
 
         super().__init__(
@@ -17,9 +21,8 @@ class IntervalColumn(StructColumn):
             size=size,
             offset=offset,
             null_count=null_count,
-            children=children
+            children=children,
         )
-    
 
     @classmethod
     def from_arrow(self, data):
@@ -46,6 +49,6 @@ class IntervalColumn(StructColumn):
     def to_arrow(self):
         typ = self.dtype.to_arrow()
         return pa.ExtensionArray.from_storage(typ, super().to_arrow())
-    
+
     def copy(self, deep=True):
         return super().copy(deep=deep).as_interval_column()

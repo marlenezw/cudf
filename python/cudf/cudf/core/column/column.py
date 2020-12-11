@@ -133,7 +133,9 @@ class ColumnBase(Column, Serializable):
         elif str(self.dtype) in NUMERIC_TYPES and self.null_count == 0:
             pd_series = pd.Series(cupy.asnumpy(self.values), copy=False)
         elif isinstance(self.dtype, cudf.core.dtypes.IntervalDtype):
-            pd_series = pd.Series(pd.IntervalDtype().__from_arrow__(self.to_arrow()))
+            pd_series = pd.Series(
+                pd.IntervalDtype().__from_arrow__(self.to_arrow())
+            )
         else:
             pd_series = self.to_arrow().to_pandas(**kwargs)
 
@@ -401,7 +403,9 @@ class ColumnBase(Column, Serializable):
             )
         elif isinstance(array.type, pa.StructType):
             return cudf.core.column.StructColumn.from_arrow(array)
-        elif isinstance(array.type, pd.core.arrays._arrow_utils.ArrowIntervalType):
+        elif isinstance(
+            array.type, pd.core.arrays._arrow_utils.ArrowIntervalType
+        ):
             return cudf.core.column.IntervalColumn.from_arrow(array)
 
         return libcudf.interop.from_arrow(data, data.column_names)._data[
@@ -1481,7 +1485,7 @@ def build_column(
             null_count=null_count,
             children=children,
         )
-    elif dtype is 'interval':
+    elif isinstance(dtype, cudf.core.dtypes.IntervalDtype):
         return cudf.core.column.IntervalColumn(
             data=data,
             dtype=dtype,
@@ -1665,7 +1669,7 @@ def as_column(arbitrary, nan_as_null=None, dtype=None, length=None):
             return as_column(arbitrary.array)
         if is_categorical_dtype(arbitrary):
             data = as_column(pa.array(arbitrary, from_pandas=True))
-        elif arbitrary.dtype == 'interval':
+        elif isinstance(arbitrary.dtype, cudf.core.dtypes.IntervalDtype):
             data = as_column(pa.array(arbitrary, from_pandas=True))
         elif arbitrary.dtype == np.bool:
             data = as_column(cupy.asarray(arbitrary), dtype=arbitrary.dtype)
@@ -1864,7 +1868,10 @@ def as_column(arbitrary, nan_as_null=None, dtype=None, length=None):
                             )
                         return as_column(data, nan_as_null=nan_as_null)
                     dtype = pd.api.types.pandas_dtype(dtype)
-                    if is_categorical_dtype(dtype) or type(dtype) == pd.core.dtypes.dtypes.IntervalDtype:
+                    if (
+                        is_categorical_dtype(dtype)
+                        or type(dtype) == pd.core.dtypes.dtypes.IntervalDtype
+                    ):
                         raise TypeError
                     else:
                         np_type = np.dtype(dtype).type
