@@ -30,20 +30,18 @@ def cut( x,
     mn, mx = [mi + 0.0 for mi in rng]
     bins = cupy.linspace(mn, mx, bins + 1, endpoint=True)
     adj = (mx - mn) * 0.001
-    side = "left" if right else "right"
-    ids = cupy.searchsorted(bins, x, side=side)
     adjust = lambda x: x - 10 ** (-3)
-    breaks = [b for b in bins]
-    breaks[0] = adjust(breaks[0])
+    bins[0] = adjust(bins[0])
     #get the left and right edges of the bins as columns 
-    left_edges = as_column(breaks[:-1:])
-    right_edges = as_column(breaks[+1::])
-
+    left_edges = as_column(bins[:-1:])
+    right_edges = as_column(bins[+1::])
+    #the input arr must be changed to the same type as the edges
+    input_arr = input_arr.astype(left_edges._dtype)
+    #checking for the correct inclusivity values
     if not right:
         right_inclusive = False
-    
     if include_lowest:
         left_inclusive = True
-
+    breakpoint()
     labels = bin(input_arr,left_edges, left_inclusive,right_edges,right_inclusive)
     return labels 
