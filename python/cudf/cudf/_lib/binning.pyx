@@ -19,8 +19,9 @@ from cudf._lib.cpp.column.column_view cimport column_view
 # I want to avoid shadowing builtins, so I've named this `bin_values` instead
 # of `bin`. I'm less concerned about shadowing `input` since this is a very
 # limited scope and there's no use-case for actual input here .
-cdef bin(Column input, Column left_edges, left_inclusive,
-         Column right_edges, right_inclusive):
+def bin(Column input, Column left_edges, 
+    left_inclusive,Column right_edges, right_inclusive):
+
     cdef inclusive c_left_inclusive = inclusive.YES if left_inclusive else inclusive.NO
     cdef inclusive c_right_inclusive = inclusive.YES if right_inclusive else inclusive.NO
 

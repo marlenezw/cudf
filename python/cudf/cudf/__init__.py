@@ -18,6 +18,7 @@ from cudf.api.extensions import (
 from cudf.core import (
     NA,
     CategoricalIndex,
+    cut,
     DataFrame,
     DatetimeIndex,
     Float32Index,
