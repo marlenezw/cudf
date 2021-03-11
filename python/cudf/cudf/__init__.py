@@ -43,6 +43,7 @@ from cudf.core import (
 )
 from cudf.core.algorithms import factorize
 from cudf.core.dtypes import CategoricalDtype, Decimal64Dtype
+from cudf.core.cut import cut
 from cudf.core.groupby import Grouper
 from cudf.core.ops import (
     add,
