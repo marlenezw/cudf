@@ -10,14 +10,14 @@ from libcpp.utility cimport move
 from cudf._lib.column cimport Column
 from cudf._lib.replace import replace_nulls
 
-from cudf._lib.cpp.binning cimport inclusive
-from cudf._lib.cpp.binning cimport bin as cpp_bin
+from cudf._lib.cpp.label_bins cimport inclusive
+from cudf._lib.cpp.label_bins cimport label_bins as cpp_bin
 from cudf._lib.cpp.column.column cimport column
 from cudf._lib.cpp.column.column_view cimport column_view
 
 
-# I want to avoid shadowing builtins, so I've named this `bin_values` instead
-# of `bin`. I'm less concerned about shadowing `input` since this is a very
+ # I want to avoid shadowing builtins, so I've named this `bin_values` instead
+ # of `bin`. I'm less concerned about shadowing `input` since this is a very
 # limited scope and there's no use-case for actual input here .
 def bin(Column input, Column left_edges, left_inclusive,
          Column right_edges, right_inclusive):
