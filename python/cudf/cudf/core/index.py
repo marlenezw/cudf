@@ -2792,7 +2792,7 @@ def interval_range(
     IntervalIndex([[0, 2), [2, 4), [4, 6), [6, 8), [8, 10)],
     ...closed='left',dtype='interval')
 
-    >>> cudf.interval_range(start=0,end=10, periods=2,closed='left')
+    >>> cudf.interval_range(start=0,end=10, periods=3,closed='left')
     ...IntervalIndex([[0.0, 3.3333333333333335),
             [3.3333333333333335, 6.666666666666667),
             [6.666666666666667, 10.0)],
@@ -2809,6 +2809,8 @@ def interval_range(
         assert end is not None and start is not None
         end = end + 1
         periods_array = cupy.asarray(cupy.arange(start, end))
+        # step_size = (end - start) / periods
+        # bin_edges = cupy.arange(start, end, step_size)
         _, bin_edges = cupy.histogram(periods_array, periods)
         # cupy.histogram turns all arrays into a float array
         # this can cause the dtype to be a float instead of an int
@@ -2883,7 +2885,7 @@ class IntervalIndex(GenericIndex):
         cls, data=None, closed=None, dtype=None, copy=False, name=None,
     ) -> "IntervalIndex":
         if copy:
-            data = column.as_column(data, dtype=dtype).copy(deep=True)
+            data = column.as_column(data, dtype=dtype).copy()
         out = Frame.__new__(cls)
         kwargs = _setdefault_name(data, name=name)
         if isinstance(data, IntervalColumn):
@@ -2908,15 +2910,15 @@ class IntervalIndex(GenericIndex):
                 )
             if not data and closed != "right":
                 data = column.build_interval_column([], [], closed=closed)
-            else:
-                data = column.as_column(
-                    data, dtype="interval" if dtype is None else dtype
-                )
+            # else:
+            #     data = column.as_column(
+            #         data, dtype="interval" if dtype is None else dtype
+            #     )
 
         out._initialize(data, **kwargs)
         return out
 
-    def from_breaks(breaks, closed="right", name=None, copy=False, dtype=None):
+    def _from_breaks(breaks, closed="right", name=None, copy=False, dtype=None):
         """
         Construct an IntervalIndex from an array of splits.
 

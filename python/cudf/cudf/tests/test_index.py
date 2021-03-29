@@ -1504,7 +1504,7 @@ def test_interval_index_many_params(data, closed):
 def test_interval_index_from_breaks(closed):
     breaks = [0, 3, 6, 10]
     pindex = pd.IntervalIndex.from_breaks(breaks, closed=closed)
-    gindex = IntervalIndex.from_breaks(breaks, closed=closed)
+    gindex = IntervalIndex._from_breaks(breaks, closed=closed)
 
     assert_eq(pindex, gindex)
 
