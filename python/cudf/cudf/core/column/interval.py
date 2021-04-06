@@ -4,6 +4,7 @@ import cudf
 import pandas as pd
 from cudf.core.column import StructColumn
 from cudf.core.dtypes import IntervalDtype
+from cudf.utils.dtypes import is_interval_dtype
 
 
 class IntervalColumn(StructColumn):
@@ -94,10 +95,11 @@ class IntervalColumn(StructColumn):
         )
 
     def as_interval_column(self, dtype, **kwargs):
-        if isinstance(dtype, str) and dtype == "interval":
-            return self
-
-        if isinstance(dtype, (IntervalDtype, cudf.core.dtypes.IntervalDtype)):
+        if is_interval_dtype(dtype):
+            # a user can directly input the string `interval` as the dtype
+            # when creating an interval series or interval dataframe
+            if dtype == "interval":
+                dtype = IntervalDtype(self.dtype.fields["left"], self.closed)
             return IntervalColumn(
                 size=self.size,
                 dtype=dtype,
@@ -107,9 +109,5 @@ class IntervalColumn(StructColumn):
                 children=self.children,
                 closed=dtype.closed,
             )
-
-        if isinstance(dtype, (IntervalDtype, pd.IntervalDtype)):
-            return self
-
-        if not isinstance(dtype, IntervalDtype):
+        else:
             raise ValueError("dtype must be IntervalDtype")

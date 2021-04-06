@@ -14,15 +14,19 @@ from nvtx import annotate
 from pandas._config import get_option
 
 import cudf
+from cudf._lib.filling import sequence
+from cudf._typing import DtypeObj
 from cudf.core.abc import Serializable
 from cudf.core.column import (
     CategoricalColumn,
     IntervalColumn,
     ColumnBase,
     DatetimeColumn,
+    IntervalColumn,
     NumericalColumn,
     StringColumn,
     TimeDeltaColumn,
+    arange,
     column,
 )
 from cudf.core.column.string import StringMethods as StringMethods
@@ -31,9 +35,12 @@ from cudf.core.frame import Frame
 from cudf.utils import ioutils, utils
 from cudf.utils.docutils import copy_docstring
 from cudf.utils.dtypes import (
+    find_common_type,
     is_categorical_dtype,
+    is_interval_dtype,
     is_list_like,
     is_mixed_with_object_dtype,
+    is_numerical_dtype,
     is_scalar,
     numeric_normalize_types,
     is_interval_dtype,
@@ -70,6 +77,9 @@ def _to_frame(this_index, index=True, name=None):
 
 
 class Index(Frame, Serializable):
+
+    dtype: DtypeObj
+
     def __new__(
         cls,
         data=None,
@@ -1548,6 +1558,10 @@ class Index(Frame, Serializable):
         else:
             return as_index(table)
 
+    @classmethod
+    def _from_data(cls, data, index=None):
+        return cls._from_table(Frame(data=data))
+
     _accessors = set()  # type: Set[Any]
 
     @property
@@ -2107,6 +2121,10 @@ class GenericIndex(Index):
         return "\n".join(lines)
 
     def __getitem__(self, index):
+        if type(self) == IntervalIndex:
+            raise NotImplementedError(
+                "Getting a scalar from an IntervalIndex is not yet supported"
+            )
         res = self._values[index]
         if not isinstance(index, int):
             res = as_index(res)
@@ -2631,7 +2649,8 @@ class TimedeltaIndex(GenericIndex):
 
 
 class CategoricalIndex(GenericIndex):
-    """A categorical of orderable values that represent the indices of another
+    """
+    A categorical of orderable values that represent the indices of another
     Column
 
     Parameters
@@ -2749,12 +2768,7 @@ class CategoricalIndex(GenericIndex):
 
 
 def interval_range(
-    start: int = None,
-    end: int = None,
-    periods: int = None,
-    freq: int = None,
-    closed: str = "right",
-    name: str = None,
+    start=None, end=None, periods=None, freq=None, name=None, closed="right",
 ) -> "IntervalIndex":
     """
     Returns a fixed frequency IntervalIndex.
@@ -2787,67 +2801,103 @@ def interval_range(
     >>> cudf.interval_range(start=0,end=5)
     IntervalIndex([(0, 0], (1, 1], (2, 2], (3, 3], (4, 4], (5, 5]],
     ...closed='right',dtype='interval')
-
     >>> cudf.interval_range(start=0,end=10, freq=2,closed='left')
     IntervalIndex([[0, 2), [2, 4), [4, 6), [6, 8), [8, 10)],
     ...closed='left',dtype='interval')
-
     >>> cudf.interval_range(start=0,end=10, periods=3,closed='left')
     ...IntervalIndex([[0.0, 3.3333333333333335),
             [3.3333333333333335, 6.666666666666667),
             [6.666666666666667, 10.0)],
             closed='left',
             dtype='interval')
-
     """
     if freq and periods and start and end:
         raise ValueError(
             "Of the four parameters: start, end, periods, and "
             "freq, exactly three must be specified"
         )
-    elif periods and not freq:
-        assert end is not None and start is not None
-        end = end + 1
-        periods_array = cupy.asarray(cupy.arange(start, end))
-        # step_size = (end - start) / periods
-        # bin_edges = cupy.arange(start, end, step_size)
-        _, bin_edges = cupy.histogram(periods_array, periods)
-        # cupy.histogram turns all arrays into a float array
-        # this can cause the dtype to be a float instead of an int
-        # the below adjusts for this
-        if cupy.all(cupy.mod(bin_edges, 1) == 0):
-            bin_edges = bin_edges.astype(int)
-        left_col = bin_edges[:-1]
-        right_col = bin_edges[1:]
+    args = [
+        cudf.Scalar(x) if x is not None else None
+        for x in (start, end, freq, periods)
+    ]
+    if any(
+        not is_numerical_dtype(x.dtype) if x is not None else False
+        for x in args
+    ):
+        raise ValueError("start, end, periods, freq must be numeric values.")
+    *rargs, periods = args
+    common_dtype = find_common_type([x.dtype for x in rargs if x])
+    start, end, freq = rargs
+    periods = periods.astype("int64") if periods is not None else None
+
+    if periods and not freq:
+        # if statement for mypy to pass
+        if end is not None and start is not None:
+            # divmod only supported on host side scalars
+            quotient, remainder = divmod((end - start).value, periods.value)
+            if remainder:
+                freq_step = cudf.Scalar((end - start) / periods)
+            else:
+                freq_step = cudf.Scalar(quotient)
+            if start.dtype != freq_step.dtype:
+                start = start.astype(freq_step.dtype)
+            bin_edges = sequence(
+                size=periods + 1,
+                init=start.device_value,
+                step=freq_step.device_value,
+            )
+            left_col = bin_edges[:-1]
+            right_col = bin_edges[1:]
     elif freq and periods:
         if end:
             start = end - (freq * periods)
         if start:
             end = freq * periods + start
-        left_col = cupy.arange(start, end, freq)
-        assert end is not None and start is not None
-        end = end + 1
-        start = start + freq
-        right_col = cupy.arange(start, end, freq)
+        if end is not None and start is not None:
+            left_col = arange(
+                start.value, end.value, freq.value, dtype=common_dtype
+            )
+            end = end + 1
+            start = start + freq
+            right_col = arange(
+                start.value, end.value, freq.value, dtype=common_dtype
+            )
     elif freq and not periods:
-        assert end is not None and start is not None
-        end = end - freq + 1
-        left_col = cupy.arange(start, end, freq)
-        end = end + freq + 1
-        start = start + freq
-        right_col = cupy.arange(start, end, freq)
+        if end is not None and start is not None:
+            end = end - freq + 1
+            left_col = arange(
+                start.value, end.value, freq.value, dtype=common_dtype
+            )
+            end = end + freq + 1
+            start = start + freq
+            right_col = arange(
+                start.value, end.value, freq.value, dtype=common_dtype
+            )
     elif start is not None and end is not None:
-        left_col = cupy.arange(start, end, freq)
+        # if statements for mypy to pass
+        if freq:
+            left_col = arange(
+                start.value, end.value, freq.value, dtype=common_dtype
+            )
+        else:
+            left_col = arange(start.value, end.value, dtype=common_dtype)
         start = start + 1
         end = end + 1
-        right_col = cupy.arange(start, end, freq)
+        if freq:
+            right_col = arange(
+                start.value, end.value, freq.value, dtype=common_dtype
+            )
+        else:
+            right_col = arange(start.value, end.value, dtype=common_dtype)
     else:
         raise ValueError(
             "Of the four parameters: start, end, periods, and "
-            "freq, atleast two must be specified"
+            "freq, at least two must be specified"
         )
     if len(right_col) == 0 or len(left_col) == 0:
-        return cudf.IntervalIndex([], closed=closed)
+        dtype = IntervalDtype("int64", closed)
+        data = column.column_empty_like_same_mask(left_col, dtype)
+        return cudf.IntervalIndex(data, closed=closed)
 
     interval_col = column.build_interval_column(
         left_col, right_col, closed=closed
@@ -2860,29 +2910,27 @@ class IntervalIndex(GenericIndex):
     Immutable index of intervals that are closed on the same side.
 
     Parameters
+    ----------
     data : array-like (1-dimensional)
-    Array-like containing Interval objects from which to build the
-    IntervalIndex.
-
+        Array-like containing Interval objects from which to build the
+        IntervalIndex.
     closed : {"left", "right", "both", "neither"}, default "right"
-    Whether the intervals are closed on the left-side, right-side,
-    both or neither.
-
+        Whether the intervals are closed on the left-side, right-side,
+        both or neither.
     dtype : dtype or None, default None
-    If None, dtype will be inferred.
-
+        If None, dtype will be inferred.
     copy : bool, default False
-    Copy the input data.
-
+        Copy the input data.
     name : object, optional
-    Name to be stored in the index.
+        Name to be stored in the index.
 
     Returns
+    -------
     IntervalIndex
     """
 
     def __new__(
-        cls, data=None, closed=None, dtype=None, copy=False, name=None,
+        cls, data, closed=None, dtype=None, copy=False, name=None,
     ) -> "IntervalIndex":
         if copy:
             data = column.as_column(data, dtype=dtype).copy()
@@ -2891,46 +2939,38 @@ class IntervalIndex(GenericIndex):
         if isinstance(data, IntervalColumn):
             data = data
         elif isinstance(data, pd.Series) and (is_interval_dtype(data.dtype)):
-            data = column.as_column(pa.Array.from_pandas(data), dtype=dtype,)
+            data = column.as_column(data, data.dtype)
         elif isinstance(data, (pd._libs.interval.Interval, pd.IntervalIndex)):
             data = column.as_column(data, dtype=dtype,)
+        elif not data:
+            dtype = IntervalDtype("int64", closed)
+            data = column.column_empty_like_same_mask(
+                column.as_column(data), dtype
+            )
         else:
-            if data is not None and data != [] and data[0].closed != closed:
-                # when closed is not the same as the data's closed
-                # we need to change the data closed value,
-                left_col = [data[i].left for i in range(len(data))]
-                # creating a col out of the left child so we can get
-                # the correct dtype
-                left = column.as_column(left_col)
-                data = column.as_column(
-                    data,
-                    dtype=IntervalDtype(left.dtype, closed=closed)
-                    if dtype is None
-                    else dtype,
-                )
-            if not data and closed != "right":
-                data = column.build_interval_column([], [], closed=closed)
-            # else:
-            #     data = column.as_column(
-            #         data, dtype="interval" if dtype is None else dtype
-            #     )
+            data = column.as_column(data)
+            data.dtype.closed = closed
 
         out._initialize(data, **kwargs)
         return out
 
-    def _from_breaks(breaks, closed="right", name=None, copy=False, dtype=None):
+    def from_breaks(breaks, closed="right", name=None, copy=False, dtype=None):
         """
         Construct an IntervalIndex from an array of splits.
 
         Parameters
         ---------
-
         breaks : array-like (1-dimensional)
             Left and right bounds for each interval.
-
         closed : {"left", "right", "both", "neither"}, default "right"
             Whether the intervals are closed on the left-side, right-side,
             both or neither.
+        copy : bool, default False
+            Copy the input data.
+        name : object, optional
+            Name to be stored in the index.
+        dtype : dtype or None, default None
+            If None, dtype will be inferred.
 
         Returns
         -------
@@ -2945,7 +2985,8 @@ class IntervalIndex(GenericIndex):
                     closed='right',
                     dtype='interval[int64]')
         """
-
+        if copy:
+            breaks = column.as_column(breaks, dtype=dtype).copy()
         left_col = breaks[:-1:]
         right_col = breaks[+1::]
 
@@ -2953,7 +2994,7 @@ class IntervalIndex(GenericIndex):
             left_col, right_col, closed=closed
         )
 
-        return IntervalIndex(interval_col)
+        return IntervalIndex(interval_col, name=name)
 
 
 class StringIndex(GenericIndex):
