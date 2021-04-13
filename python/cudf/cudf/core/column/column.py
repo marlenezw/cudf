@@ -346,7 +346,6 @@ class ColumnBase(Column, Serializable):
 
             out_indices = codes.to_arrow()
             out_dictionary = categories.to_arrow()
-
             return pa.DictionaryArray.from_arrays(
                 out_indices, out_dictionary, ordered=self.ordered,
             )
@@ -624,7 +623,11 @@ class ColumnBase(Column, Serializable):
             idx = len(self) + idx
         if idx > len(self) - 1 or idx < 0:
             raise IndexError("single positional indexer is out-of-bounds")
-
+        
+        if is_interval_dtype(self.dtype):
+            interval_arr = self.to_arrow().__array__()
+            final_arr = [cudf.interval_range(interval_arr[i]['left'], interval_arr[i]['right'], periods=1) for i in range(len(interval_arr))]
+            return final_arr[index]
         return libcudf.copying.get_element(self, idx).value
 
     def slice(self, start: int, stop: int, stride: int = None) -> ColumnBase:
@@ -1712,7 +1715,6 @@ def build_categorical_column(
         codes = codes.astype(codes_dtype)
 
     dtype = CategoricalDtype(categories=categories, ordered=ordered)
-
     result = build_column(
         data=None,
         dtype=dtype,

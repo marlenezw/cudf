@@ -1982,7 +1982,6 @@ class GenericIndex(Index):
         return out
 
     def _initialize(self, values, **kwargs):
-
         kwargs = _setdefault_name(values, **kwargs)
 
         # normalize the input
@@ -2122,10 +2121,11 @@ class GenericIndex(Index):
 
     def __getitem__(self, index):
         if type(self) == IntervalIndex:
-            raise NotImplementedError(
-                "Getting a scalar from an IntervalIndex is not yet supported"
-            )
-        res = self._values[index]
+            interval_arr = self.to_arrow().__array__()
+            final_arr = [interval_range(interval_arr[i]['left'], interval_arr[i]['right'], periods=1) for i in range(len(interval_arr))]
+            res = final_arr[index]
+        else:
+            res = self._values[index]
         if not isinstance(index, int):
             res = as_index(res)
             res.name = self.name
@@ -2732,7 +2732,7 @@ class CategoricalIndex(GenericIndex):
             data = column.as_column(
                 data, dtype="category" if dtype is None else dtype
             )
-            # dtype has already been taken care
+            # dtype has already been taken care of
             dtype = None
 
         if categories is not None:
