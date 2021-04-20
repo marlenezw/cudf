@@ -1,4 +1,4 @@
-from cudf._lib.label_bins import bin
+from cudf._lib.labeling import label_bins
 from cudf.core.column import as_column
 from cudf.core.index import IntervalIndex
 import cupy
@@ -53,7 +53,7 @@ def cut( x,
         right_inclusive = False
     if include_lowest:
         left_inclusive = True
-    labels = bin(input_arr,left_edges, left_inclusive,right_edges,right_inclusive)
+    labels = label_bins(input_arr,left_edges, left_inclusive,right_edges,right_inclusive)
     breakpoint()
     fin_labels = [(cupy.linspace(interval_arr[labels[i]]['left'], interval_arr[labels[i]]['right'],2)).get() for i in range(len(labels))]
     cat_array = pd.Categorical(fin_labels, categories=interval_labels, ordered=ordered)
