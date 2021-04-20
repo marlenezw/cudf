@@ -1,10 +1,11 @@
 from cudf._lib.labeling import label_bins
 from cudf.core.column import as_column
-from cudf.core.index import IntervalIndex
+from cudf.core.column import build_categorical_column
+from cudf.core.index import IntervalIndex, interval_range
 import cupy
 import pandas as pd
 import numpy as np
-
+import cudf
 
 def cut( x,
         bins,
@@ -30,7 +31,6 @@ def cut( x,
     sz = x.size
     rng = (x.min(), x.max())
     mn, mx = [mi + 0.0 for mi in rng]
-
     bins = cupy.linspace(mn, mx, bins + 1, endpoint=True)
     adj = (mx - mn) * 0.001
     adjust = lambda x: x - 10 ** (-precision)
@@ -42,7 +42,6 @@ def cut( x,
         bins[0] = adjust(bins[0])
     #get labels for categories
     interval_labels = IntervalIndex.from_breaks(bins.get())
-    interval_arr = interval_labels.to_arrow().__array__()
     #get the left and right edges of the bins as columns 
     left_edges = as_column(bins[:-1:])
     right_edges = as_column(bins[+1::])
@@ -54,7 +53,4 @@ def cut( x,
     if include_lowest:
         left_inclusive = True
     labels = label_bins(input_arr,left_edges, left_inclusive,right_edges,right_inclusive)
-    breakpoint()
-    fin_labels = [(cupy.linspace(interval_arr[labels[i]]['left'], interval_arr[labels[i]]['right'],2)).get() for i in range(len(labels))]
-    cat_array = pd.Categorical(fin_labels, categories=interval_labels, ordered=ordered)
-    return cat_array
+    col = build_categorical_column(categories=interval_labels,codes =labels,ordered=True)

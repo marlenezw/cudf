@@ -35,6 +35,10 @@ class IntervalColumn(StructColumn):
     @property
     def closed(self):
         return self._closed
+    
+    @property
+    def _values(self):
+        return self
 
     @classmethod
     def from_arrow(self, data):

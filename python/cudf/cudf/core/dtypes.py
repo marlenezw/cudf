@@ -9,6 +9,7 @@ import pandas as pd
 import pyarrow as pa
 from pandas.api.extensions import ExtensionDtype
 from pandas.core.arrays._arrow_utils import ArrowIntervalType
+from cudf.utils.dtypes import  is_interval_dtype
 
 import cudf
 from cudf._typing import Dtype
@@ -37,6 +38,8 @@ class CategoricalDtype(_BaseDtype):
             return cudf.core.index.as_index(
                 cudf.core.column.column_empty(0, dtype="object", masked=False)
             )
+        if is_interval_dtype(self._categories[0]):
+            return self._categories
         return cudf.core.index.as_index(self._categories, copy=False)
 
     @property
@@ -76,7 +79,9 @@ class CategoricalDtype(_BaseDtype):
             dtype = "object"  # type: Any
         else:
             dtype = None
-
+        if is_interval_dtype(categories[0].dtype):
+            return categories
+            
         column = cudf.core.column.as_column(categories, dtype=dtype)
 
         if isinstance(column, cudf.core.column.CategoricalColumn):
