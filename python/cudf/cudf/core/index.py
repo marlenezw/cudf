@@ -14,6 +14,7 @@ from pandas._config import get_option
 from cudf._lib.filling import sequence
 
 import cudf
+from cudf._lib.filling import sequence
 from cudf._typing import DtypeObj
 from cudf.core.abc import Serializable
 from cudf.core.column import (
@@ -21,21 +22,26 @@ from cudf.core.column import (
     IntervalColumn,
     ColumnBase,
     DatetimeColumn,
+    IntervalColumn,
     NumericalColumn,
     StringColumn,
     TimeDeltaColumn,
+    arange,
     column,
     arange,
 )
 from cudf.core.column.string import StringMethods as StringMethods
 from cudf.core.dtypes import IntervalDtype
 from cudf.core.frame import Frame
-from cudf.utils import ioutils, utils
+from cudf.utils import ioutils
 from cudf.utils.docutils import copy_docstring
 from cudf.utils.dtypes import (
+    find_common_type,
     is_categorical_dtype,
+    is_interval_dtype,
     is_list_like,
     is_mixed_with_object_dtype,
+    is_numerical_dtype,
     is_scalar,
     numeric_normalize_types,
     is_interval_dtype,
@@ -1732,8 +1738,9 @@ class RangeIndex(Index):
         return len(range(self._start, self._stop, self._step))
 
     def __getitem__(self, index):
+        len_self = len(self)
         if isinstance(index, slice):
-            sl_start, sl_stop, sl_step = index.indices(len(self))
+            sl_start, sl_stop, sl_step = index.indices(len_self)
 
             lo = self._start + sl_start * self._step
             hi = self._start + sl_stop * self._step
@@ -1741,7 +1748,11 @@ class RangeIndex(Index):
             return RangeIndex(start=lo, stop=hi, step=st, name=self._name)
 
         elif isinstance(index, Number):
-            index = utils.normalize_index(index, len(self))
+            if index < 0:
+                index = len_self + index
+            if not (0 <= index < len_self):
+                raise IndexError("out-of-bound")
+            index = min(index, len_self)
             index = self._start + index * self._step
             return index
         else:
@@ -2763,12 +2774,7 @@ class CategoricalIndex(GenericIndex):
 
 
 def interval_range(
-    start: int = None,
-    end: int = None,
-    periods: int = None,
-    freq: int = None,
-    name: str = None,
-    closed: str = "right",
+    start=None, end=None, periods=None, freq=None, name=None, closed="right",
 ) -> "IntervalIndex":
     """
     Returns a fixed frequency IntervalIndex.
@@ -2816,45 +2822,36 @@ def interval_range(
             "Of the four parameters: start, end, periods, and "
             "freq, exactly three must be specified"
         )
-    if not isinstance(start or freq or end, int) and not isinstance(
-        start or freq or end, float
+    args = [
+        cudf.Scalar(x) if x is not None else None
+        for x in (start, end, freq, periods)
+    ]
+    if any(
+        not is_numerical_dtype(x.dtype) if x is not None else False
+        for x in args
     ):
-        raise NotImplementedError("Non-numeric values not yet supported")
-    elif periods and not freq:
+        raise ValueError("start, end, periods, freq must be numeric values.")
+    *rargs, periods = args
+    common_dtype = find_common_type([x.dtype for x in rargs if x])
+    start, end, freq = rargs
+    periods = periods.astype("int64") if periods is not None else None
+
+    if periods and not freq:
         # if statement for mypy to pass
         if end is not None and start is not None:
-            # determine if periods are float or integer
-            quotient, remainder = divmod((end - start), periods)
+            # divmod only supported on host side scalars
+            quotient, remainder = divmod((end - start).value, periods.value)
             if remainder:
-                step_input = (end - start) / periods
-                if (
-                    step_input % 1 == 0
-                    and type(start) == int
-                    and type(end) == int
-                ):
-                    freq_step = cudf.Scalar(step_input, dtype=int).device_value
-                else:
-                    freq_step = cudf.Scalar(
-                        (end - start) / periods
-                    ).device_value
+                freq_step = cudf.Scalar((end - start) / periods)
             else:
-                if (
-                    quotient % 1 == 0
-                    and type(start) == int
-                    and type(end) == int
-                ):
-                    freq_step = cudf.Scalar(quotient, dtype=int).device_value
-                else:
-                    freq_step = cudf.Scalar(quotient).device_value
-            if (
-                type(start) == int
-                and type(end) == int
-                and freq_step.dtype == int
-            ):
-                start = cudf.Scalar(start, dtype=int).device_value
-            else:
-                start = cudf.Scalar(start, dtype=float).device_value
-            bin_edges = sequence(size=periods + 1, init=start, step=freq_step,)
+                freq_step = cudf.Scalar(quotient)
+            if start.dtype != freq_step.dtype:
+                start = start.astype(freq_step.dtype)
+            bin_edges = sequence(
+                size=periods + 1,
+                init=start.device_value,
+                step=freq_step.device_value,
+            )
             left_col = bin_edges[:-1]
             right_col = bin_edges[1:]
     elif freq and periods:
@@ -2863,36 +2860,50 @@ def interval_range(
         if start:
             end = freq * periods + start
         if end is not None and start is not None:
-            left_col = arange(start, end, freq)
+            left_col = arange(
+                start.value, end.value, freq.value, dtype=common_dtype
+            )
             end = end + 1
             start = start + freq
-            right_col = arange(start, end, freq)
+            right_col = arange(
+                start.value, end.value, freq.value, dtype=common_dtype
+            )
     elif freq and not periods:
         if end is not None and start is not None:
             end = end - freq + 1
-            left_col = arange(start, end, freq)
+            left_col = arange(
+                start.value, end.value, freq.value, dtype=common_dtype
+            )
             end = end + freq + 1
             start = start + freq
-            right_col = arange(start, end, freq)
+            right_col = arange(
+                start.value, end.value, freq.value, dtype=common_dtype
+            )
     elif start is not None and end is not None:
         # if statements for mypy to pass
         if freq:
-            left_col = arange(start, end, freq)
+            left_col = arange(
+                start.value, end.value, freq.value, dtype=common_dtype
+            )
         else:
-            left_col = arange(start, end)
+            left_col = arange(start.value, end.value, dtype=common_dtype)
         start = start + 1
         end = end + 1
         if freq:
-            right_col = arange(start, end, freq)
+            right_col = arange(
+                start.value, end.value, freq.value, dtype=common_dtype
+            )
         else:
-            right_col = arange(start, end)
+            right_col = arange(start.value, end.value, dtype=common_dtype)
     else:
         raise ValueError(
             "Of the four parameters: start, end, periods, and "
             "freq, at least two must be specified"
         )
     if len(right_col) == 0 or len(left_col) == 0:
-        return cudf.IntervalIndex([], closed=closed)
+        dtype = IntervalDtype("int64", closed)
+        data = column.column_empty_like_same_mask(left_col, dtype)
+        return cudf.IntervalIndex(data, closed=closed)
 
     interval_col = column.build_interval_column(
         left_col, right_col, closed=closed
