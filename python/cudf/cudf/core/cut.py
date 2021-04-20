@@ -1,4 +1,4 @@
-from cudf._lib.label_bins import bin
+from cudf._lib.labeling import label_bins
 from cudf.core.column import as_column
 from cudf.core.column import build_categorical_column
 from cudf.core.index import IntervalIndex, interval_range
@@ -52,5 +52,5 @@ def cut( x,
         right_inclusive = False
     if include_lowest:
         left_inclusive = True
-    labels = bin(input_arr,left_edges, left_inclusive,right_edges,right_inclusive)
+    labels = label_bins(input_arr,left_edges, left_inclusive,right_edges,right_inclusive)
     col = build_categorical_column(categories=interval_labels,codes =labels,ordered=True)
