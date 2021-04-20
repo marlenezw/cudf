@@ -1361,8 +1361,6 @@ def test_categorical_index_basic(data, categories, dtype, ordered, name):
     assert_eq(pindex, gindex)
 
 
-<<<<<<< HEAD
-=======
 INTERVAL_BOUNDARY_TYPES = [
     int,
     np.int8,
@@ -1375,7 +1373,6 @@ INTERVAL_BOUNDARY_TYPES = [
 ]
 
 
->>>>>>> 5c2f74492cdb1a48144bbdf92338d5c182ce080e
 @pytest.mark.parametrize("closed", ["left", "right", "both", "neither"])
 @pytest.mark.parametrize("start", [0, 1, 2, 3])
 @pytest.mark.parametrize("end", [4, 5, 6, 7])
@@ -1386,8 +1383,6 @@ def test_interval_range_basic(start, end, closed):
     assert_eq(pindex, gindex)
 
 
-<<<<<<< HEAD
-=======
 @pytest.mark.parametrize("start_t", INTERVAL_BOUNDARY_TYPES)
 @pytest.mark.parametrize("end_t", INTERVAL_BOUNDARY_TYPES)
 def test_interval_range_dtype_basic(start_t, end_t):
@@ -1400,7 +1395,6 @@ def test_interval_range_dtype_basic(start_t, end_t):
     assert_eq(pindex, gindex)
 
 
->>>>>>> 5c2f74492cdb1a48144bbdf92338d5c182ce080e
 @pytest.mark.parametrize("closed", ["left", "right", "both", "neither"])
 @pytest.mark.parametrize("start", [0])
 @pytest.mark.parametrize("end", [0])
@@ -1424,10 +1418,6 @@ def test_interval_range_freq_basic(start, end, freq, closed):
     assert_eq(pindex, gindex)
 
 
-<<<<<<< HEAD
-@pytest.mark.parametrize("closed", ["left", "right", "both", "neither"])
-@pytest.mark.parametrize("periods", [1, 1.0, 2, 2.0, 3, 3.0])
-=======
 @pytest.mark.parametrize("start_t", INTERVAL_BOUNDARY_TYPES)
 @pytest.mark.parametrize("end_t", INTERVAL_BOUNDARY_TYPES)
 @pytest.mark.parametrize("freq_t", INTERVAL_BOUNDARY_TYPES)
@@ -1448,7 +1438,6 @@ def test_interval_range_freq_basic_dtype(start_t, end_t, freq_t):
 
 @pytest.mark.parametrize("closed", ["left", "right", "both", "neither"])
 @pytest.mark.parametrize("periods", [1, 1.0, 2, 2.0, 3.0, 3])
->>>>>>> 5c2f74492cdb1a48144bbdf92338d5c182ce080e
 @pytest.mark.parametrize("start", [0, 0.0, 1.0, 1, 2, 2.0, 3.0, 3])
 @pytest.mark.parametrize("end", [4, 4.0, 5.0, 5, 6, 6.0, 7.0, 7])
 def test_interval_range_periods_basic(start, end, periods, closed):
@@ -1462,8 +1451,6 @@ def test_interval_range_periods_basic(start, end, periods, closed):
     assert_eq(pindex, gindex)
 
 
-<<<<<<< HEAD
-=======
 @pytest.mark.parametrize("start_t", INTERVAL_BOUNDARY_TYPES)
 @pytest.mark.parametrize("end_t", INTERVAL_BOUNDARY_TYPES)
 @pytest.mark.parametrize("periods_t", INTERVAL_BOUNDARY_TYPES)
@@ -1484,7 +1471,6 @@ def test_interval_range_periods_basic_dtype(start_t, end_t, periods_t):
     assert_eq(pindex, gindex)
 
 
->>>>>>> 5c2f74492cdb1a48144bbdf92338d5c182ce080e
 @pytest.mark.parametrize("closed", ["left", "right", "both", "neither"])
 @pytest.mark.parametrize("periods", [1, 2, 3])
 @pytest.mark.parametrize("freq", [1, 2, 3, 4])
@@ -1500,8 +1486,6 @@ def test_interval_range_periods_freq_end(end, freq, periods, closed):
     assert_eq(pindex, gindex)
 
 
-<<<<<<< HEAD
-=======
 @pytest.mark.parametrize("periods_t", INTERVAL_BOUNDARY_TYPES)
 @pytest.mark.parametrize("freq_t", INTERVAL_BOUNDARY_TYPES)
 @pytest.mark.parametrize("end_t", INTERVAL_BOUNDARY_TYPES)
@@ -1522,7 +1506,6 @@ def test_interval_range_periods_freq_end_dtype(periods_t, freq_t, end_t):
     assert_eq(pindex, gindex)
 
 
->>>>>>> 5c2f74492cdb1a48144bbdf92338d5c182ce080e
 @pytest.mark.parametrize("closed", ["left", "right", "both", "neither"])
 @pytest.mark.parametrize("periods", [1, 2, 3])
 @pytest.mark.parametrize("freq", [1, 2, 3, 4])
@@ -1538,8 +1521,6 @@ def test_interval_range_periods_freq_start(start, freq, periods, closed):
     assert_eq(pindex, gindex)
 
 
-<<<<<<< HEAD
-=======
 @pytest.mark.parametrize("periods_t", INTERVAL_BOUNDARY_TYPES)
 @pytest.mark.parametrize("freq_t", INTERVAL_BOUNDARY_TYPES)
 @pytest.mark.parametrize("start_t", INTERVAL_BOUNDARY_TYPES)
@@ -1560,7 +1541,6 @@ def test_interval_range_periods_freq_start_dtype(periods_t, freq_t, start_t):
     assert_eq(pindex, gindex)
 
 
->>>>>>> 5c2f74492cdb1a48144bbdf92338d5c182ce080e
 @pytest.mark.parametrize("closed", ["right", "left", "both", "neither"])
 @pytest.mark.parametrize(
     "data",
